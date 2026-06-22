@@ -328,44 +328,9 @@ export function PricingPage({
     if (!isAuthenticated) {
       navigate("/signup");
     } else {
-      setCheckoutPlan(plan);
-      setCheckoutSuccess(false);
-      setCheckoutError("");
+      const planCode = plan.id === "plan-pro" || plan.id === "Pro" ? "pro" : "elite";
+      navigate(`/checkout?plan=${planCode}`);
     }
-  };
-
-  const handleConfirmCheckout = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!checkoutPlan) return;
-    
-    if (!cardNumber.trim() || !cardExpiry.trim() || !cardCvc.trim()) {
-      setCheckoutError("Please fill out all billing information fields.");
-      return;
-    }
-    if (!acceptTermsCheckout) {
-      setCheckoutError("You must agree to the Terms of Service.");
-      return;
-    }
-
-    if (onUpdateProfile && activeProfile) {
-      const isPro = checkoutPlan.id === "plan-pro";
-      const updatedProfile = {
-        ...activeProfile,
-        subscriptionPlan: (isPro ? "Pro" : "Elite") as "Pro" | "Elite",
-        plan_name: isPro ? "PRO TRADER" : "ELITE TRADER",
-        creditsLimit: isPro ? 200 : 500,
-        total_credits: isPro ? 200 : 500,
-        creditsUsed: 0,
-        credits_remaining: isPro ? 200 : 500,
-        nextResetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        subscription_status: "active",
-        free_analyses_remaining: 0,
-        paymentFailed: false,
-      };
-      onUpdateProfile(updatedProfile);
-    }
-
-    setCheckoutSuccess(true);
   };
 
   return (
@@ -525,120 +490,6 @@ export function PricingPage({
           </div>
         </div>
       </main>
-
-      {/* Dynamic Simulated Checkout Modal */}
-      {checkoutPlan && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full relative space-y-6 text-slate-200">
-            <button
-              onClick={() => {
-                setCheckoutPlan(null);
-                setCheckoutSuccess(false);
-              }}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg"
-            >
-              ✕
-            </button>
-
-            {!checkoutSuccess ? (
-              <form onSubmit={handleConfirmCheckout} className="space-y-4">
-                <div className="text-center space-y-2">
-                  <span className="text-[10px] font-mono text-emerald-400 uppercase font-black tracking-widest block bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1 w-fit mx-auto">
-                    SECURE TRADING TELEMETRY CHECKOUT
-                  </span>
-                  <h3 className="text-xl font-black text-white uppercase font-mono">Level Up Account</h3>
-                  <p className="text-xs text-slate-400">
-                    Acquiring plan <b className="text-emerald-400 uppercase">{checkoutPlan.name}</b> at ${billingCycle === "yearly" ? Math.round(checkoutPlan.price * 0.8) : checkoutPlan.price} / month.
-                  </p>
-                </div>
-
-                {checkoutError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 font-mono text-[10px] uppercase tracking-wide text-center">
-                    {checkoutError}
-                  </div>
-                )}
-
-                <div className="space-y-1.5 text-left">
-                  <label className="block text-[9px] font-mono uppercase text-slate-500 font-black">Credit Card Number</label>
-                  <input
-                    type="text"
-                    required
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    placeholder="4111 2222 3333 4444"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 font-mono text-slate-200"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 text-left">
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-mono uppercase text-slate-500 font-black">Expiration Date</label>
-                    <input
-                      type="text"
-                      required
-                      value={cardExpiry}
-                      onChange={(e) => setCardExpiry(e.target.value)}
-                      placeholder="12/28"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 font-mono text-slate-200 text-center"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-mono uppercase text-slate-500 font-black">CVC Code</label>
-                    <input
-                      type="text"
-                      required
-                      value={cardCvc}
-                      onChange={(e) => setCardCvc(e.target.value)}
-                      placeholder="369"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-emerald-500 font-mono text-slate-200 text-center"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2 pt-1 font-mono text-[10px] text-slate-400 text-left">
-                  <input
-                    type="checkbox"
-                    checked={acceptTermsCheckout}
-                    onChange={(e) => setAcceptTermsCheckout(e.target.checked)}
-                    className="rounded border-slate-800 bg-slate-950 text-emerald-500 outline-none mt-0.5 shrink-0"
-                  />
-                  <span>I agree to the Terms of Service and authorize this payment simulation.</span>
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-450 hover:to-teal-350 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/10"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Authorize Secure Charge</span>
-                </button>
-              </form>
-            ) : (
-              <div className="text-center py-6 space-y-5 animate-fade-in">
-                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400 shadow-lg shadow-emerald-500/5">
-                  <Check className="w-7 h-7" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-black text-white uppercase font-mono">Upgrade Confirmed</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed font-sans px-4">
-                    Your simulation payment is successfully processed. Your account is now elevated to <b className="text-emerald-400 uppercase">{checkoutPlan.name}</b> with <b>{checkoutPlan.id === "plan-pro" ? "200" : "500"} credits</b> refilled.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setCheckoutPlan(null);
-                    setCheckoutSuccess(false);
-                    navigate("/dashboard");
-                  }}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-450 hover:to-teal-350 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-md"
-                >
-                  Enter Portal Dashboard &rarr;
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       <PageCTA navigate={navigate} />
       <SharedFooter navigate={navigate} />

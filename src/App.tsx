@@ -35,6 +35,8 @@ import RiskCalculator from "./components/RiskCalculator";
 import PerformanceAnalytics from "./components/PerformanceAnalytics";
 import AccountSettings from "./components/AccountSettings";
 import AdminPanel from "./components/AdminPanel";
+import ManageSubscription from "./components/ManageSubscription";
+import CheckoutPage from "./components/CheckoutPage";
 
 // Dynamic routing page components
 import {
@@ -440,6 +442,7 @@ export default function App() {
     { label: "Challenge Tracker", icon: <Award className="w-4 h-4" /> },
     { label: "Risk Calculator", icon: <Calculator className="w-4 h-4" /> },
     { label: "Performance Analytics", icon: <Activity className="w-4 h-4" /> },
+    { label: "Manage Subscription", icon: <CreditCard className="w-4 h-4" /> },
     { label: "Account Settings", icon: <Settings className="w-4 h-4" /> },
     { label: "Admin Panel", icon: <ShieldCheck className="w-4 h-4" /> },
   ];
@@ -493,6 +496,14 @@ export default function App() {
         return <SupportPage navigate={navigate} />;
       case "/demo":
         return <DemoPage navigate={navigate} />;
+      case "/checkout":
+        return (
+          <CheckoutPage
+            navigate={navigate}
+            profile={profile}
+            onUpdateProfile={handleUpdateFullProfile}
+          />
+        );
       
       // Portal tab-based views
       case "/dashboard":
@@ -507,6 +518,8 @@ export default function App() {
         return renderPortalView("Risk Calculator");
       case "/analytics":
         return renderPortalView("Performance Analytics");
+      case "/subscription":
+        return renderPortalView("Manage Subscription");
       case "/settings":
         return renderPortalView("Account Settings");
       case "/admin":
@@ -563,6 +576,7 @@ export default function App() {
                   "Challenge Tracker": "/challenge",
                   "Risk Calculator": "/calculator",
                   "Performance Analytics": "/analytics",
+                  "Manage Subscription": "/subscription",
                   "Account Settings": "/settings",
                   "Admin Panel": "/admin",
                 };
@@ -656,6 +670,7 @@ export default function App() {
                   "Challenge Tracker": "/challenge",
                   "Risk Calculator": "/calculator",
                   "Performance Analytics": "/analytics",
+                  "Manage Subscription": "/subscription",
                   "Account Settings": "/settings",
                   "Admin Panel": "/admin",
                 };
@@ -673,7 +688,7 @@ export default function App() {
 
           {/* Core Content Shell */}
           <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full flex-1">
-            {tab === "Dashboard" && (
+             {tab === "Dashboard" && (
               <DashboardOverview
                 profile={profile}
                 challenges={challenges}
@@ -689,6 +704,7 @@ export default function App() {
                     "Challenge Tracker": "/challenge",
                     "Risk Calculator": "/calculator",
                     "Performance Analytics": "/analytics",
+                    "Manage Subscription": "/subscription",
                     "Account Settings": "/settings",
                     "Admin Panel": "/admin",
                   };
@@ -715,6 +731,7 @@ export default function App() {
                     "Challenge Tracker": "/challenge",
                     "Risk Calculator": "/calculator",
                     "Performance Analytics": "/analytics",
+                    "Manage Subscription": "/subscription",
                     "Account Settings": "/settings",
                     "Admin Panel": "/admin",
                   };
@@ -744,6 +761,27 @@ export default function App() {
 
             {tab === "Performance Analytics" && (
               <PerformanceAnalytics trades={trades} challenges={challenges} />
+            )}
+
+            {tab === "Manage Subscription" && (
+              <ManageSubscription
+                profile={profile}
+                onUpdateProfile={handleUpdateFullProfile}
+                onNavigateToTab={(targetTab) => {
+                  const map: Record<string, string> = {
+                    "Dashboard": "/dashboard",
+                    "AI Analysis": "/analysis",
+                    "Trade Journal": "/journal",
+                    "Challenge Tracker": "/challenge",
+                    "Risk Calculator": "/calculator",
+                    "Performance Analytics": "/analytics",
+                    "Manage Subscription": "/subscription",
+                    "Account Settings": "/settings",
+                    "Admin Panel": "/admin",
+                  };
+                  navigate(map[targetTab] || "/dashboard");
+                }}
+              />
             )}
 
             {tab === "Account Settings" && (

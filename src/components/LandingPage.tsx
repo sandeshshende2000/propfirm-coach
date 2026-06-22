@@ -22,9 +22,15 @@ import {
   Plus,
   Lock,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Upload
 } from "lucide-react";
 import { SAAS_PLANS } from "../data";
+import { motion } from "motion/react";
 
 interface LandingPageProps {
   onGetStarted: (plan: string) => void;
@@ -33,52 +39,45 @@ interface LandingPageProps {
 }
 
 export default function LandingPage({ onGetStarted, onLogin, navigate }: LandingPageProps) {
-  // Live market price states
-  const [prices, setPrices] = React.useState({
-    XAUUSD: 2315.42,
-    BTCUSD: 67250.00,
-    EURUSD: 1.08642,
-    GBPUSD: 1.26824,
-  });
-
-  const [trends, setTrends] = React.useState({
-    XAUUSD: "up",
-    BTCUSD: "down",
-    EURUSD: "up",
-    GBPUSD: "down",
-  });
+  // Video fallback and dynamic ticker states
+  const [videoFailed, setVideoFailed] = React.useState(false);
+  const [xauPrice, setXauPrice] = React.useState(2342.65);
+  const [eurPrice, setEurPrice] = React.useState(1.0842);
+  const [btcPrice, setBtcPrice] = React.useState(67250.40);
+  const [priceDirections, setPriceDirections] = React.useState({ xau: "up", eur: "down", btc: "up" });
 
   React.useEffect(() => {
     const priceInterval = setInterval(() => {
-      setPrices(prev => {
-        const xauChange = (Math.random() - 0.48) * 0.8;
-        const btcChange = (Math.random() - 0.52) * 50;
-        const eurChange = (Math.random() - 0.49) * 0.00012;
-        const gbpChange = (Math.random() - 0.51) * 0.00014;
-
-        const nextXau = parseFloat((prev.XAUUSD + xauChange).toFixed(2));
-        const nextBtc = parseFloat((prev.BTCUSD + btcChange).toFixed(1));
-        const nextEur = parseFloat((prev.EURUSD + eurChange).toFixed(5));
-        const nextGbp = parseFloat((prev.GBPUSD + gbpChange).toFixed(5));
-
-        setTrends({
-          XAUUSD: nextXau >= prev.XAUUSD ? "up" : "down",
-          BTCUSD: nextBtc >= prev.BTCUSD ? "up" : "down",
-          EURUSD: nextEur >= prev.EURUSD ? "up" : "down",
-          GBPUSD: nextGbp >= prev.GBPUSD ? "up" : "down",
-        });
-
-        return {
-          XAUUSD: nextXau,
-          BTCUSD: nextBtc,
-          EURUSD: nextEur,
-          GBPUSD: nextGbp,
-        };
+      setXauPrice((prev) => {
+        const change = (Math.random() - 0.5) * 0.6;
+        setPriceDirections((d) => ({ ...d, xau: change >= 0 ? "up" : "down" }));
+        return +(prev + change).toFixed(2);
+      });
+      setEurPrice((prev) => {
+        const change = (Math.random() - 0.5) * 0.0002;
+        setPriceDirections((d) => ({ ...d, eur: change >= 0 ? "up" : "down" }));
+        return +(prev + change).toFixed(5);
+      });
+      setBtcPrice((prev) => {
+        const change = (Math.random() - 0.5) * 18;
+        setPriceDirections((d) => ({ ...d, btc: change >= 0 ? "up" : "down" }));
+        return +(prev + change).toFixed(2);
       });
     }, 2000);
-
     return () => clearInterval(priceInterval);
   }, []);
+
+  // Interactive See The AI Analysis Process player states
+  const [activeStep, setActiveStep] = React.useState(0);
+  const [isPlaying, setIsPlaying] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      setActiveStep((prev) => (prev + 1) % 6);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [isPlaying]);
 
   // Section 6: Why Traders Use Us - Count state animation
   const [tradersCount, setTradersCount] = React.useState(0);
@@ -218,289 +217,482 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
       </header>
 
       {/* SECTION 1: HERO */}
-      <section className="relative pt-16 pb-24 px-4 max-w-7xl mx-auto grid lg:grid-cols-12 gap-12 items-center">
-        <div className="lg:col-span-7 space-y-6 text-left">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-blue-400 text-xs font-mono uppercase tracking-widest">
-            <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-            V3.5 MULTI-TIMEFRAME ACTIVE
-          </div>
-
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-tight">
-            AI-Powered Multi-Timeframe <br/>
-            <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-indigo-400 bg-clip-text text-transparent">
-              Trading Analysis
-            </span>
-          </h1>
-
-          <p className="text-slate-400 text-base sm:text-lg leading-relaxed max-w-2xl">
-            Upload H1, M15 and M5 charts and receive AI-generated market insights in seconds.
-          </p>
-
-          <div className="flex flex-wrap gap-4 pt-2">
-            <button
-              onClick={() => navigate("/signup")}
-              className="px-8 py-4 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-bold text-sm rounded-xl shadow-xl shadow-blue-500/20 active:scale-98 transition-all flex items-center gap-2 cursor-pointer"
-            >
-              Start Free Trial <ArrowUpRight className="w-4.5 h-4.5" />
-            </button>
-            <button
-              onClick={() => navigate("/demo")}
-              className="px-8 py-4 bg-slate-900 hover:bg-slate-800 border border-slate-800/80 hover:border-slate-700 text-slate-300 hover:text-white font-medium text-sm rounded-xl active:scale-98 transition-all cursor-pointer"
-            >
-              View Demo Analysis
-            </button>
-          </div>
+      <section className="relative overflow-hidden pt-12 pb-24 px-4 bg-slate-950">
+        {/* Full Hero section-wide Background Video */}
+        <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover opacity-[0.12]"
+            src="https://cdn.pixabay.com/video/2018/11/02/19177-298910080_large.mp4"
+          />
+          {/* Dark grid/radial overlay with standard premium fintech gradient */}
+          <div className="absolute inset-0 bg-radial-at-c from-transparent via-slate-950/45 to-slate-950" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-slate-950/20" />
         </div>
 
-        {/* Hero Right side: Animated trading dashboard preview */}
-        <div className="lg:col-span-5 relative">
-          <div className="absolute -inset-1 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-2xl blur-lg opacity-15 animate-pulse-glow" />
-          <div className="relative bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-5">
-            {/* Window header */}
-            <div className="flex items-center justify-between pb-4 border-b border-slate-800 text-xs font-mono">
-              <div className="flex items-center gap-1.5 text-slate-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
-                <span className="ml-2 font-black text-[10px] tracking-widest text-slate-400 uppercase">SYS_CONSOLE_PRIME</span>
-              </div>
-              <span className="text-blue-500 font-bold bg-blue-500/10 px-2 py-0.5 rounded text-[10px]">ACTIVE ANALYTICS</span>
+        <div className="relative z-10 max-w-7xl mx-auto grid lg:grid-cols-12 gap-12 items-center">
+          <div className="lg:col-span-6 space-y-6 text-left">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-blue-400 text-xs font-mono uppercase tracking-widest bg-slate-950/80 backdrop-blur-sm">
+              <Sparkles className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+              V3.5 MULTI-TIMEFRAME ACTIVE
             </div>
 
-            {/* Dashboard Fields Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Win Rate */}
-              <div className="p-4 bg-slate-950/60 border border-slate-850/80 rounded-xl relative overflow-hidden group">
-                <span className="text-[10px] uppercase font-mono text-slate-400 block mb-1 flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-blue-500" />
-                  Win Rate
-                </span>
-                <div className="flex items-baseline gap-2 mt-2">
-                  <span className="text-2xl font-black text-white">68.2%</span>
-                  <span className="text-[9px] font-mono text-blue-400 font-bold uppercase tracking-wider">SECURE EDGE</span>
-                </div>
-                <div className="h-1 bg-blue-500/20 w-full rounded-full mt-3 overflow-hidden">
-                  <div className="bg-blue-500 h-full rounded-full" style={{ width: "68.2%" }} />
-                </div>
-              </div>
-
-              {/* Profit Target Progress */}
-              <div className="p-4 bg-slate-950/60 border border-slate-850/80 rounded-xl relative overflow-hidden group">
-                <span className="text-[10px] uppercase font-mono text-slate-400 block mb-1 flex items-center gap-1.5">
-                  <Target className="w-3.5 h-3.5 text-blue-500" />
-                  Profit Target
-                </span>
-                <div className="flex items-baseline gap-1 mt-2">
-                  <span className="text-2xl font-black text-white">78.5%</span>
-                  <span className="text-slate-400 text-[10px]">/ 100%</span>
-                </div>
-                {/* Progress ratio animation bar */}
-                <div className="h-1.5 bg-slate-800 w-full rounded-full mt-2 overflow-hidden">
-                  <div className="bg-gradient-to-r from-blue-600 via-sky-400 to-indigo-500 h-full rounded-full" style={{ width: "78.5%" }} />
-                </div>
-              </div>
-
-              {/* Challenge Status */}
-              <div className="p-4 bg-slate-950/60 border border-slate-850/80 rounded-xl relative overflow-hidden group">
-                <span className="text-[10px] uppercase font-mono text-slate-400 block mb-1 flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  Challenge Status
-                </span>
-                <span className="block text-lg font-extrabold text-emerald-400 tracking-tight mt-1">
-                  IN LIMITS
-                </span>
-                <span className="block text-[9px] font-mono text-slate-500 uppercase mt-1">
-                  Daily Limit: $5,000 max
-                </span>
-              </div>
-
-              {/* AI Analysis Score */}
-              <div className="p-4 bg-slate-950/60 border border-slate-850/80 rounded-xl relative overflow-hidden group">
-                <span className="text-[10px] uppercase font-mono text-slate-400 block mb-1 flex items-center gap-1.5">
-                  <Brain className="w-3.5 h-3.5 text-blue-500" />
-                  AI Analysis Score
-                </span>
-                <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-2.5xl font-black text-white">A+</span>
-                  <span className="text-[10px] font-mono text-blue-400">92% Match</span>
-                </div>
-                <span className="block text-[9px] font-mono text-slate-500 uppercase mt-1">
-                  SYSTEM LEVEL DETERMINED
-                </span>
-              </div>
-            </div>
-
-            {/* Glowing active metrics bar */}
-            <div className="bg-slate-950/40 p-3 rounded-xl border border-slate-850 flex items-center justify-between text-[10px] font-mono text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 bg-blue-500 rounded-full animate-ping" />
-                H1, M15, M5 SYNCED
+            <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white leading-tight">
+              AI-Powered Multi-Timeframe <br />
+              <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-indigo-400 bg-clip-text text-transparent">
+                Trading Analysis
               </span>
-              <span>100% LATENCY COMPLIANT</span>
+            </h1>
+
+            <p className="text-slate-405 text-base sm:text-lg leading-relaxed max-w-2xl font-sans">
+              Connect multi-timeframe screenshots (H1, M15, M5) directly to our deep vision network. Synthesize orderblocks and liquidity sweeps for institutional confirmation in seconds.
+            </p>
+
+            <div className="flex flex-wrap gap-4 pt-2">
+              <button
+                onClick={() => navigate("/signup")}
+                className="px-8 py-4 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-bold font-mono text-xs uppercase tracking-wider rounded-xl shadow-xl shadow-blue-500/20 active:scale-98 transition-all flex items-center gap-2 cursor-pointer font-black"
+              >
+                Start Free Trial <ArrowUpRight className="w-4.5 h-4.5" />
+              </button>
+              <button
+                onClick={() => navigate("/demo")}
+                className="px-8 py-4 bg-slate-900 hover:bg-slate-800 border border-slate-850 hover:border-slate-700 text-slate-300 hover:text-white font-bold font-mono text-xs uppercase tracking-wider rounded-xl active:scale-98 transition-all cursor-pointer"
+              >
+                View Demo Analysis
+              </button>
             </div>
           </div>
+
+          {/* Hero Right / Below: Large Trading Video with Premium Visual Upgrades */}
+          <motion.div
+            initial={{ opacity: 0, y: 35 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
+            className="lg:col-span-6 w-full relative"
+          >
+            {/* Ambient dynamic backlight glow behind the container */}
+            <div className="absolute -inset-1.5 bg-gradient-to-tr from-blue-600 via-sky-500 to-indigo-650 rounded-3xl blur-xl opacity-25 animate-pulse" />
+
+            {/* Main glass outer card */}
+            <div className="relative backdrop-blur-xl bg-slate-900/60 border border-white/10 rounded-3xl p-3 sm:p-4 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] overflow-hidden group">
+              
+              {/* Window header / system bar */}
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/5 text-xs font-mono mb-3 bg-slate-950/40 rounded-t-xl">
+                <div className="flex items-center gap-1.5 text-slate-500">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80 shadow-md shadow-rose-500/20" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80 shadow-md shadow-amber-500/20" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 shadow-md shadow-emerald-500/20" />
+                  <span className="ml-2 font-black text-[9px] tracking-widest text-blue-400 uppercase">PROP_QUANT_v3.5</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+                  <span className="text-[9px] text-emerald-400 font-mono font-bold tracking-widest bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
+                    SYS LIVE FEED
+                  </span>
+                </div>
+              </div>
+
+              {/* Dynamic ticker panel - real-time simulated live price telemetry */}
+              <div className="grid grid-cols-3 gap-2 px-3 py-2 bg-slate-950/80 border border-white/5 rounded-xl text-[10px] font-mono mb-3">
+                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">XAUUSD (GOLD)</span>
+                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
+                    ${xauPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <span className={priceDirections.xau === "up" ? "text-emerald-400 font-black animate-pulse" : "text-rose-400 font-black animate-pulse"}>
+                      {priceDirections.xau === "up" ? "▲" : "▼"}
+                    </span>
+                  </span>
+                </div>
+                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">EURUSD (FOREX)</span>
+                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
+                    {eurPrice.toFixed(5)}
+                    <span className={priceDirections.eur === "up" ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>
+                      {priceDirections.eur === "up" ? "▲" : "▼"}
+                    </span>
+                  </span>
+                </div>
+                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">BTCUSD (CRYPTO)</span>
+                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
+                    ${btcPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <span className={priceDirections.btc === "up" ? "text-emerald-400 font-black animate-pulse" : "text-rose-400 font-black animate-pulse"}>
+                      {priceDirections.btc === "up" ? "▲" : "▼"}
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Trading Video Viewport */}
+              <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-slate-950 border border-white/5 select-none shadow-inner">
+                {videoFailed ? (
+                  /* Fallback professional trading image */
+                  <div className="absolute inset-0 w-full h-full bg-slate-950 flex flex-col items-center justify-center animate-fade-in">
+                    <img
+                      referrerPolicy="no-referrer"
+                      src="https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80"
+                      alt="Professional AI Trading Market Dashboard"
+                      className="w-full h-full object-cover opacity-75"
+                    />
+                    {/* Matrix style grid scanline layer */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent mix-blend-multiply pointer-events-none" />
+                    <div className="absolute inset-0 bg-radial-at-c from-transparent via-slate-950/50 to-slate-950 pointer-events-none" />
+                  </div>
+                ) : (
+                  /* High Quality interactive HTML5 background looping video */
+                  <>
+                    <video
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      controls={false}
+                      disablePictureInPicture
+                      controlsList="nodownload nofullscreen noremoteplayback"
+                      onContextMenu={(e) => e.preventDefault()}
+                      onError={() => setVideoFailed(true)}
+                      className="w-full h-full object-cover transition-transform duration-[4000ms] ease-out group-hover:scale-105"
+                    >
+                      <source src="https://assets.mixkit.co/videos/preview/mixkit-stock-market-candlestick-chart-focus-34293-large.mp4" type="video/mp4" />
+                      <source src="https://assets.mixkit.co/videos/preview/mixkit-dashboard-screen-showing-ascending-business-graphs-and-charts-34292-large.mp4" type="video/mp4" />
+                      Your browser does not support high quality video.
+                    </video>
+                    {/* Subtle Overlay gradients */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/10 to-transparent pointer-events-none mix-blend-multiply" />
+                    <div className="absolute inset-0 bg-radial-at-c from-transparent via-slate-950/25 to-slate-950/15 pointer-events-none" />
+                  </>
+                )}
+
+                {/* Cyber HUD Status Badge overlay on the video */}
+                <div className="absolute top-3 left-3 flex gap-2">
+                  <span className="px-2.5 py-1 bg-slate-900/95 border border-white/10 backdrop-blur-md rounded-lg text-[9px] font-mono font-bold text-blue-405 tracking-wider flex items-center gap-1.5 shadow-md shadow-black/40">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    RSI IND: 58.42
+                  </span>
+                  <span className="px-2.5 py-1 bg-slate-900/95 border border-white/10 backdrop-blur-md rounded-lg text-[9px] font-mono font-bold text-emerald-450 tracking-wider flex items-center gap-1.5 shadow-md shadow-black/40">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    ORDERBLOCK: DETECTED
+                  </span>
+                </div>
+
+                {/* Large centering telemetry layer watermark */}
+                <div className="absolute inset-x-0 bottom-12 flex justify-center pointer-events-none select-none">
+                  <span className="px-3 py-1.5 bg-slate-950/80 border border-white/5 backdrop-blur-xl rounded-full text-[8px] font-mono text-slate-500 tracking-[0.2em] font-extrabold uppercase animate-pulse shadow-md">
+                    INSTITUTIONAL SAAS GRID v3.5
+                  </span>
+                </div>
+
+                {/* Foot/HUD status pane */}
+                <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[9px] font-mono bg-slate-900/95 border border-white/10 backdrop-blur-md px-3.5 py-2.5 rounded-xl text-slate-300 shadow-xl shadow-black/30">
+                  <span className="flex items-center gap-2 font-bold tracking-wide">
+                    <Activity className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                    XAUUSD & Forex Candlestick Telemetry
+                  </span>
+                  <span className="text-blue-400 font-black px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded">
+                    ACTIVE CONFIRMATION MATRIX
+                  </span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 
-      {/* SECTION 2: LIVE MARKET SECTION */}
-      <section className="bg-slate-950 border-y border-zinc-800/60 py-16">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-start md:items-end justify-between mb-8 gap-4">
-            <div>
-              <span className="text-xs font-mono text-blue-500 uppercase font-black tracking-widest block mb-2">LIVE PLATFORM TELEMETRY</span>
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Active Operations Pipeline</h2>
-            </div>
-            <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 border border-slate-800 rounded-lg text-xs font-mono">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-              <span>MARKET FEEDS ACTIVE</span>
-            </div>
+      {/* SECTION 2: SECOND VIDEO SECTION - AI ANALYSIS PROCESS */}
+      <section className="bg-slate-950 border-t border-b border-zinc-800/50 py-24 relative overflow-hidden">
+        {/* Ambient glow background */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-blue-600/5 rounded-full blur-[120px] pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 relative z-10">
+          <div className="text-center mb-16 space-y-3">
+            <span className="text-xs font-mono text-blue-500 uppercase font-black tracking-widest block">HOW TO ALIGN THE COGNITIVE PIPELINE</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">See The AI Analysis Process</h2>
+            <p className="text-slate-400 text-sm max-w-xl mx-auto font-mono">STEP-BY-STEP SYNAPTIC EXECUTION TIMELINE</p>
           </div>
 
-          {/* Cards wrapper */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* GOLD (XAUUSD) */}
-            <div className="p-5 bg-slate-900/40 border border-slate-850 hover:border-blue-500/20 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-xs font-mono text-slate-500">XAUUSD</span>
-                  <h3 className="text-lg font-black text-white tracking-tight">Gold Spot</h3>
-                </div>
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${trends.XAUUSD === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {trends.XAUUSD === 'up' ? 'BULLISH' : 'BEARISH'}
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="text-2xl font-black text-white">${prices.XAUUSD.toLocaleString()}</span>
-                <span className={`text-xs font-mono flex items-center ${trends.XAUUSD === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {trends.XAUUSD === 'up' ? '▲' : '▼'}
-                </span>
-              </div>
-              {/* Sparkline canvas simulation with SVG */}
-              <div className="h-10 mt-4 overflow-hidden relative">
-                <svg className="w-full h-full absolute inset-0" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <path 
-                    d={trends.XAUUSD === 'up' ? "M0,35 Q15,10 30,28 T60,18 T90,5 T100,2" : "M0,15 Q15,35 30,12 T60,32 T90,26 T100,32"} 
-                    fill="none" 
-                    stroke={trends.XAUUSD === 'up' ? "#10b981" : "#ef4444"} 
-                    strokeWidth="1.8" 
-                  />
-                </svg>
-              </div>
+          <div className="grid lg:grid-cols-12 gap-12 items-center">
+            {/* Steps Timeline controller (Left) */}
+            <div className="lg:col-span-5 space-y-4">
+              {[
+                { label: "Upload H1 Chart", desc: "Define structural HTF ranges, major liquidity sweeps, and overall daily bias constraints." },
+                { label: "Upload M15 Chart", desc: "Sync MTF orderblocks, internal fair value gaps, and intermediate market structure shifts." },
+                { label: "Upload M5 Chart", desc: "Pinpoint LTF entry zones, retail sweeps, and micro-channel liquidity extraction bounds." },
+                { label: "AI Processing", desc: "Vision nodes analyze combined constraints, compiling high-probability simulation runs." },
+                { label: "Analysis Report", desc: "Instant visual brief covering conviction bias, stop losses, and multi-tier profit indices." },
+                { label: "Challenge Tracking", desc: "Automated verification against FTMO or custom prop-firm risk ceilings." }
+              ].map((step, idx) => {
+                const isActive = activeStep === idx;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setActiveStep(idx);
+                      setIsPlaying(false); // Pause auto-play when user manually clicks
+                    }}
+                    className={`w-full text-left p-4 rounded-xl border transition-all duration-300 flex items-start gap-4 cursor-pointer relative overflow-hidden group ${
+                      isActive 
+                        ? "bg-slate-900 border-blue-500/30 shadow-lg shadow-blue-500/5" 
+                        : "bg-slate-900/20 border-slate-850 hover:bg-slate-900/40 hover:border-slate-800"
+                    }`}
+                  >
+                    {/* Glowing highlight indicator for the active card */}
+                    {isActive && (
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500 to-indigo-500" />
+                    )}
+                    
+                    {/* Step index */}
+                    <div className={`w-8 h-8 rounded-lg font-mono font-black text-xs flex items-center justify-center shrink-0 transition-all ${
+                      isActive ? "bg-blue-500 text-slate-950" : "bg-slate-950 text-slate-400 group-hover:text-white"
+                    }`}>
+                      0{idx + 1}
+                    </div>
+
+                    <div className="space-y-1">
+                      <h4 className={`text-sm font-black font-mono uppercase tracking-tight transition-colors ${
+                        isActive ? "text-blue-400" : "text-slate-200 group-hover:text-blue-450"
+                      }`}>
+                        {step.label}
+                      </h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        {step.desc}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* BITCOIN (BTCUSD) */}
-            <div className="p-5 bg-slate-900/40 border border-slate-850 hover:border-blue-500/20 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-xs font-mono text-slate-500">BTCUSD</span>
-                  <h3 className="text-lg font-black text-white tracking-tight">Bitcoin</h3>
-                </div>
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${trends.BTCUSD === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {trends.BTCUSD === 'up' ? 'BULLISH' : 'BEARISH'}
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-2">
-                <span className="text-2xl font-black text-white">${prices.BTCUSD.toLocaleString()}</span>
-                <span className={`text-xs font-mono flex items-center ${trends.BTCUSD === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {trends.BTCUSD === 'up' ? '▲' : '▼'}
-                </span>
-              </div>
-              {/* Sparkline */}
-              <div className="h-10 mt-4 overflow-hidden relative">
-                <svg className="w-full h-full absolute inset-0" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <path 
-                    d={trends.BTCUSD === 'up' ? "M0,30 Q20,15 40,25 T80,10 T100,5" : "M0,5 Q20,35 40,15 T80,30 T100,35"} 
-                    fill="none" 
-                    stroke={trends.BTCUSD === 'up' ? "#10b981" : "#ef4444"} 
-                    strokeWidth="1.8" 
-                  />
-                </svg>
-              </div>
-            </div>
+            {/* Simulated Live Video Player Viewport (Right) */}
+            <div className="lg:col-span-7">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-2xl relative overflow-hidden text-left">
+                <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-blue-500/10 via-blue-500/30 to-blue-500/10" />
 
-            {/* EURUSD */}
-            <div className="p-5 bg-slate-900/40 border border-slate-850 hover:border-blue-500/20 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-xs font-mono text-slate-500">EURUSD</span>
-                  <h3 className="text-lg font-black text-white tracking-tight">Euro / Dollar</h3>
+                {/* Player Header HUD */}
+                <div className="flex items-center justify-between pb-3.5 border-b border-slate-850 text-xs font-mono mb-4 text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                    <span className="font-bold uppercase tracking-widest text-[10px] text-blue-400">AI PROJECTION LAB ACTIVE</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-[10px]">
+                    <span>STAGE 0{activeStep + 1} / 06</span>
+                    <span className="text-slate-500">FORMAT: VISION_MULTIPLEX</span>
+                  </div>
                 </div>
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${trends.EURUSD === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {trends.EURUSD === 'up' ? 'BULLISH' : 'BEARISH'}
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-2xl font-black text-white">{prices.EURUSD.toFixed(5)}</span>
-                <span className={`text-xs font-mono flex items-center ${trends.EURUSD === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {trends.EURUSD === 'up' ? '▲' : '▼'}
-                </span>
-              </div>
-              {/* Sparkline */}
-              <div className="h-10 mt-4 overflow-hidden relative">
-                <svg className="w-full h-full absolute inset-0" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <path 
-                    d={trends.EURUSD === 'up' ? "M0,35 T25,15 T50,22 T75,12 T100,4" : "M0,8 T25,28 T50,15 T75,32 T100,35"} 
-                    fill="none" 
-                    stroke={trends.EURUSD === 'up' ? "#10b981" : "#ef4444"} 
-                    strokeWidth="1.8" 
-                  />
-                </svg>
-              </div>
-            </div>
 
-            {/* GBPUSD */}
-            <div className="p-5 bg-slate-900/40 border border-slate-850 hover:border-blue-500/20 rounded-2xl relative overflow-hidden group hover:-translate-y-1 transition-all duration-300">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-xs font-mono text-slate-500">GBPUSD</span>
-                  <h3 className="text-lg font-black text-white tracking-tight">Pound / Dollar</h3>
+                {/* Multi-layered Video Screen viewport */}
+                <div className="relative aspect-video rounded-xl overflow-hidden bg-slate-950 border border-slate-850 flex items-center justify-center">
+                  
+                  {/* Real Stock Trading Video Background */}
+                  <video
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="absolute inset-0 w-full h-full object-cover opacity-15"
+                    src="https://assets.mixkit.co/videos/preview/mixkit-dashboard-screen-showing-ascending-business-graphs-and-charts-34292-large.mp4"
+                  />
+
+                  {/* Stage Overlays - Dynamic Glassmorphism Interface Card */}
+                  <div className="w-full h-full relative z-10 flex items-center justify-center p-6">
+                    {/* STEP 1: H1 */}
+                    {activeStep === 0 && (
+                      <div className="w-full max-w-sm bg-slate-900/90 border border-blue-500/30 backdrop-blur-md p-5 rounded-xl space-y-4 animate-fade-in text-left">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-blue-400 font-bold">H1_TIME_FRAME_IMPORT</span>
+                          <span className="text-slate-500">100KB/S</span>
+                        </div>
+                        <div className="p-6 bg-slate-950/80 rounded-lg border border-slate-850 border-dashed flex flex-col items-center justify-center gap-3 text-center">
+                          <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-full flex items-center justify-center animate-bounce">
+                            <Upload className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="block text-xs font-mono font-bold text-slate-200">Importing XAUUSD_H1.png</span>
+                            <span className="text-[10px] font-mono text-emerald-400 block mt-1 uppercase">✓ High Res Scanned Successfully</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 w-full rounded-full overflow-hidden">
+                          <div className="bg-blue-500 h-full rounded-full animate-pulse" style={{ width: "100%" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 2: M15 */}
+                    {activeStep === 1 && (
+                      <div className="w-full max-w-sm bg-slate-900/90 border border-indigo-500/30 backdrop-blur-md p-5 rounded-xl space-y-4 animate-fade-in text-left">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-indigo-400 font-bold">M15_STRUCTURE_IMPORT</span>
+                          <span className="text-slate-500">READY</span>
+                        </div>
+                        <div className="p-6 bg-slate-950/80 rounded-lg border border-slate-850 border-dashed flex flex-col items-center justify-center gap-3 text-center">
+                          <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-full flex items-center justify-center animate-pulse">
+                            <Upload className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="block text-xs font-mono font-bold text-slate-200">Importing XAUUSD_M15.png</span>
+                            <span className="text-[10px] text-slate-400 font-mono block mt-1">Sensing Fair Value Gaps (FVG)</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 w-full rounded-full overflow-hidden">
+                          <div className="bg-indigo-500 h-full rounded-full" style={{ width: "100%" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 3: M5 */}
+                    {activeStep === 2 && (
+                      <div className="w-full max-w-sm bg-slate-900/90 border border-sky-400/30 backdrop-blur-md p-5 rounded-xl space-y-4 animate-fade-in text-left">
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-sky-400 font-bold">M5_EXECUTION_IMPORT</span>
+                          <span className="text-slate-500">SCAN_PENDING</span>
+                        </div>
+                        <div className="p-6 bg-slate-950/80 rounded-lg border border-slate-850 border-dashed flex flex-col items-center justify-center gap-3 text-center">
+                          <div className="w-12 h-12 bg-sky-500/10 text-sky-400 rounded-full flex items-center justify-center">
+                            <Upload className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="block text-xs font-mono font-bold text-slate-200">Importing XAUUSD_M5.png</span>
+                            <span className="text-[10px] font-mono text-amber-400 block mt-1 uppercase">▶ Searching Liquidity Sweep zones...</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 w-full rounded-full overflow-hidden">
+                          <div className="bg-sky-400 h-full rounded-full" style={{ width: "100%" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 4: AI PROCESSING */}
+                    {activeStep === 3 && (
+                      <div className="w-full max-w-md bg-slate-900/95 border border-blue-500/40 backdrop-blur-md p-5 rounded-xl space-y-4 animate-scale-up relative text-left">
+                        <div className="absolute inset-x-0 top-1/4 h-[1px] bg-gradient-to-r from-transparent via-blue-500/60 to-transparent animate-laser pointer-events-none" />
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-blue-400 font-bold flex items-center gap-1">
+                            <Brain className="w-4 h-4 animate-pulse" /> NEURAL_SYNTH_ACTIVE
+                          </span>
+                          <span className="text-slate-500">COMPILING...</span>
+                        </div>
+                        
+                        <div className="bg-slate-950/90 p-4 rounded-lg border border-slate-850/80 font-mono text-[10px] space-y-2 text-slate-300">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">&gt; ALIGN H1 BOUNDS:</span>
+                            <span className="text-emerald-400 font-bold">SUCCESS [A+]</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">&gt; DETECT MTF ORDERBLOCK:</span>
+                            <span className="text-emerald-400 font-bold">SUCCESS [X]</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-500">&gt; VERIFY M5 LIQUIDITY SWEEP:</span>
+                            <span className="text-emerald-400 font-bold">SWEEP DETECTED</span>
+                          </div>
+                          <div className="flex items-center justify-between text-blue-400 font-black animate-pulse">
+                            <span>&gt; SYNTHESIZING SCENARIOS...</span>
+                            <span>IN_PROGRESS</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 5: REPORT */}
+                    {activeStep === 4 && (
+                      <div className="w-full max-w-sm bg-slate-900/95 border border-indigo-500/30 backdrop-blur-md p-4 rounded-xl space-y-3 animate-fade-in text-left">
+                        <div className="flex items-center justify-between text-xs font-mono pb-2 border-b border-slate-850">
+                          <span className="text-indigo-400 font-bold">✓ CORE SCENARIO GENERATED</span>
+                          <span className="text-emerald-400 uppercase font-black tracking-widest text-[9px]">A+ PROBABILITY</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                          <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                            <span className="text-slate-500 block text-[9px] uppercase">Asset</span>
+                            <span className="text-white font-extrabold text-sm block mt-0.5">XAUUSD</span>
+                          </div>
+                          <div className="p-2 bg-slate-950 rounded border border-slate-850">
+                            <span className="text-slate-500 block text-[9px] uppercase">Bias</span>
+                            <span className="text-emerald-400 font-extrabold text-sm block mt-0.5">BULLISH</span>
+                          </div>
+                        </div>
+                        <div className="p-2 bg-slate-950 rounded border border-slate-850 font-mono text-[10px] space-y-1 text-left">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Entry:</span>
+                            <span className="text-slate-200 font-bold">$2,311.50 - $2,313.20</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Stop Loss:</span>
+                            <span className="text-rose-400 font-bold">$2,305.00</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Target Profit:</span>
+                            <span className="text-emerald-400 font-bold">$2,334.80</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 6: CHALLENGE */}
+                    {activeStep === 5 && (
+                      <div className="w-full max-w-sm bg-slate-900/95 border border-emerald-500/30 backdrop-blur-md p-4 rounded-xl space-y-3.5 animate-fade-in text-left">
+                        <div className="flex items-center justify-between text-xs font-mono pb-2 border-b border-slate-850">
+                          <span className="text-emerald-400 font-bold">✓ RISK MONITOR SHIELD ENGAGED</span>
+                          <span className="text-slate-500">SYNC ACTIVE</span>
+                        </div>
+                        <div className="p-3 bg-slate-950 rounded-lg border border-slate-850 space-y-2">
+                          <div className="flex items-center justify-between text-xs font-mono">
+                            <span className="text-slate-400">Account Size:</span>
+                            <span className="text-white font-black">$100,000</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs font-mono">
+                            <span className="text-slate-400">Daily Balance Limit:</span>
+                            <span className="text-slate-200 font-bold">$5,000 Max Loss</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs font-mono">
+                            <span className="text-slate-400">Active Trade Risk:</span>
+                            <span className="text-emerald-400 font-bold">Within 0.5% Limit</span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] font-mono text-emerald-400 flex items-center justify-center gap-1 bg-emerald-500/10 py-1.5 rounded border border-emerald-500/20 text-center font-bold">
+                          ✓ ACCOUNT PROTECTION LOCK ACTIVE
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${trends.GBPUSD === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                  {trends.GBPUSD === 'up' ? 'BULLISH' : 'BEARISH'}
-                </span>
-              </div>
-              <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-2xl font-black text-white">{prices.GBPUSD.toFixed(5)}</span>
-                <span className={`text-xs font-mono flex items-center ${trends.GBPUSD === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {trends.GBPUSD === 'up' ? '▲' : '▼'}
-                </span>
-              </div>
-              {/* Sparkline */}
-              <div className="h-10 mt-4 overflow-hidden relative">
-                <svg className="w-full h-full absolute inset-0" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <path 
-                    d={trends.GBPUSD === 'up' ? "M0,32 Q25,8 50,22 T75,15 T100,3" : "M0,5 Q25,32 50,12 T75,28 T100,34"} 
-                    fill="none" 
-                    stroke={trends.GBPUSD === 'up' ? "#10b981" : "#ef4444"} 
-                    strokeWidth="1.8" 
-                  />
-                </svg>
-              </div>
-            </div>
-          </div>
 
-          {/* Scrolling Marquee Ticker */}
-          <div className="mt-12 bg-slate-900/40 border border-slate-850 py-3 rounded-xl overflow-hidden relative">
-            <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-slate-950 to-transparent z-10" />
-            <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-slate-950 to-transparent z-10" />
-            <div className="animate-marquee flex items-center whitespace-nowrap gap-12 text-xs font-mono text-slate-400">
-              <span className="flex items-center gap-1.5"><Brain className="w-4 h-4 text-blue-500"/> PROP-INTELLIGENCE FEED</span>
-              <span className="flex items-center gap-1">XAUUSD <span className="text-emerald-400">▲</span> ${(prices.XAUUSD).toFixed(2)}</span>
-              <span className="flex items-center gap-1">BTCUSD <span className="text-red-400">▼</span> ${(prices.BTCUSD).toFixed(1)}</span>
-              <span className="flex items-center gap-1">EURUSD <span className="text-emerald-400">▲</span> {(prices.EURUSD).toFixed(5)}</span>
-              <span className="flex items-center gap-1">GBPUSD <span className="text-red-400">▼</span> {(prices.GBPUSD).toFixed(5)}</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500"/> HIGHEST EXECUTIONS ACTIVE</span>
-              <span className="flex items-center gap-1">XAUUSD <span className="text-emerald-400">▲</span> ${(prices.XAUUSD).toFixed(2)}</span>
-              <span className="flex items-center gap-1">BTCUSD <span className="text-red-400">▼</span> ${(prices.BTCUSD).toFixed(1)}</span>
-              <span className="flex items-center gap-1">EURUSD <span className="text-emerald-400">▲</span> {(prices.EURUSD).toFixed(5)}</span>
-              <span className="flex items-center gap-1">GBPUSD <span className="text-red-400">▼</span> {(prices.GBPUSD).toFixed(5)}</span>
-              {/* Duplicate list to fill container scroll natively */}
-              <span className="flex items-center gap-1.5"><Brain className="w-4 h-4 text-blue-500"/> PROP-INTELLIGENCE FEED</span>
-              <span className="flex items-center gap-1">XAUUSD <span className="text-emerald-400">▲</span> ${(prices.XAUUSD).toFixed(2)}</span>
-              <span className="flex items-center gap-1">BTCUSD <span className="text-red-400">▼</span> ${(prices.BTCUSD).toFixed(1)}</span>
-              <span className="flex items-center gap-1">EURUSD <span className="text-emerald-400">▲</span> {(prices.EURUSD).toFixed(5)}</span>
-              <span className="flex items-center gap-1">GBPUSD <span className="text-red-400">▼</span> {(prices.GBPUSD).toFixed(5)}</span>
-              <span className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-500"/> HIGHEST EXECUTIONS ACTIVE</span>
+                {/* Player Controls Bar */}
+                <div className="flex items-center justify-between mt-3 px-1 text-xs font-mono text-slate-400">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      className="p-1.5 hover:text-white hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                    >
+                      {isPlaying ? <Pause className="w-4 h-4 text-blue-400" /> : <Play className="w-4 h-4 text-emerald-400 animate-pulse" />}
+                    </button>
+                    <span className="text-slate-500 font-bold text-[10px]">
+                      {isPlaying ? "AUTO CYCLING STAGES" : "PAUSED"}
+                    </span>
+                  </div>
+                  
+                  {/* Timeline progress pills */}
+                  <div className="flex items-center gap-1.5 font-bold">
+                    {[0,1,2,3,4,5].map((idx) => {
+                      const isActive = activeStep === idx;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setActiveStep(idx);
+                            setIsPlaying(false);
+                          }}
+                          className={`w-5 h-1.5 rounded transition-all cursor-pointer ${
+                            isActive ? "bg-blue-500 w-8" : "bg-slate-800 hover:bg-slate-700"
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -98,6 +98,14 @@ export interface UserProfile {
   credits_remaining?: number;
   plan_name?: string;
   total_credits?: number;
+  status?: string;
+  payment_history?: Array<{
+    id: string;
+    date: string;
+    plan: string;
+    amount: number;
+    status: 'SUCCESS' | 'FAILED';
+  }>;
 }
 
 export interface ChatMessage {

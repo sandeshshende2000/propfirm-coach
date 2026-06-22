@@ -44,33 +44,6 @@ export default function DashboardOverview({
 }: DashboardOverviewProps) {
   const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0] || null;
 
-  // Live price simulator for real-time TradingView feel
-  const [prices, setPrices] = useState<Record<string, { val: number; change: number }>>({
-    XAUUSD: { val: 2314.15, change: -0.22 },
-    BTCUSD: { val: 68420.50, change: 1.45 },
-    EURUSD: { val: 1.08542, change: 0.08 },
-    GBPUSD: { val: 1.26740, change: -0.15 },
-  });
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setPrices((prev) => {
-        const randXAU = (Math.random() - 0.5) * 0.8;
-        const randBTC = (Math.random() - 0.5) * 45;
-        const randEUR = (Math.random() - 0.5) * 0.0003;
-        const randGBP = (Math.random() - 0.5) * 0.0004;
-
-        return {
-          XAUUSD: { val: +(prev.XAUUSD.val + randXAU).toFixed(2), change: prev.XAUUSD.change },
-          BTCUSD: { val: +(prev.BTCUSD.val + randBTC).toFixed(2), change: prev.BTCUSD.change },
-          EURUSD: { val: +(prev.EURUSD.val + randEUR).toFixed(5), change: prev.EURUSD.change },
-          GBPUSD: { val: +(prev.GBPUSD.val + randGBP).toFixed(5), change: prev.GBPUSD.change },
-        };
-      });
-    }, 1200);
-    return () => clearInterval(timer);
-  }, []);
-
   // Real-time calculated statistics based strictly on active user journal:
   const totalTrades = trades.length;
   const winsCount = trades.filter((t) => t.status === "WIN").length;
@@ -107,28 +80,6 @@ export default function DashboardOverview({
 
   return (
     <div className="space-y-6">
-      {/* Mini Ticker Ribbon */}
-      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl px-4 py-3 flex items-center justify-between overflow-x-auto gap-6 shrink-0 scrollbar-hide">
-        <div className="flex items-center gap-2 text-xs text-slate-400 font-mono shrink-0">
-          <Activity className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-          <span className="font-bold text-slate-300">LIVE FEED:</span>
-        </div>
-        <div className="flex items-center gap-6 text-xs font-mono shrink-0">
-          {(Object.entries(prices) as Array<[string, { val: number; change: number }]>).map(([pair, detail]) => (
-            <div key={pair} className="flex items-center gap-2 shrink-0">
-              <span className="text-slate-300 font-bold">{pair}</span>
-              <span className="text-slate-50 font-medium tracking-tight bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800/80">
-                {detail.val}
-              </span>
-              <span className={detail.change >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                {detail.change >= 0 ? "+" : ""}
-                {detail.change}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Welcome Notification for new real users */}
       {!isDemoMode && totalTrades === 0 && aiAnalysesCount === 0 && (
         <div className="bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent border border-blue-500/20 rounded-2xl p-5 relative overflow-hidden animate-fade-in shadow-xl shadow-blue-500/5">
@@ -326,80 +277,160 @@ export default function DashboardOverview({
         </div>
       </div>
 
-      {/* Remaining Credits & Billing Simulator Console */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden">
-        <div className="lg:col-span-1 space-y-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400 font-bold">
-              <CreditCard className="w-4 h-4" />
+      {/* Dedicated Upgrade Your Plan Card & Billing Simulator Console */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Upgrade Your Plan Card - takes 2 columns */}
+        <div id="upgrade-your-plan-card" className="lg:col-span-2 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6 text-left relative overflow-hidden flex flex-col justify-between space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-850 pb-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                <CreditCard className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-md font-bold text-white tracking-tight leading-none font-sans">Upgrade Your Plan</h2>
+                <span className="text-[10px] text-slate-500 font-mono uppercase font-bold">LIVE LICENSE & ACCESS DESK</span>
+              </div>
             </div>
-            <div>
-              <h2 className="text-md font-bold text-white tracking-tight leading-none font-sans">Remaining Credits</h2>
-              <span className="text-[10px] text-slate-500 font-mono uppercase font-bold">BILLING & AI LIMIT CONSOLE</span>
+
+            <div className="text-right">
+              <span className="text-[9px] font-mono text-slate-500 uppercase block">CURRENT PLAN</span>
+              <span className={`inline-block font-mono font-black text-xs uppercase px-2.5 py-0.5 rounded border ${
+                profile.plan_name === "FREE TRIAL EXPIRED" || profile.status === "Expired"
+                  ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                  : profile.subscriptionPlan === "Pro"
+                  ? "bg-blue-500/10 border-blue-500/20 text-blue-400"
+                  : profile.subscriptionPlan === "Elite"
+                  ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+                  : "bg-teal-500/10 border-teal-500/20 text-teal-400"
+              }`}>
+                {profile.plan_name || (profile.subscriptionPlan === 'Free' ? 'FREE TRIAL' : `${profile.subscriptionPlan.toUpperCase()} TRADER`)}
+              </span>
             </div>
           </div>
 
-          <div className="space-y-2 pt-1">
-            <div className="flex justify-between items-baseline">
-              <span className="text-2xl sm:text-3xl font-black text-white font-mono leading-none">
-                {Math.max(0, profile.creditsLimit - profile.creditsUsed)}
-              </span>
-              <span className="text-xs text-slate-400 font-mono">
-                / {profile.creditsLimit} Credits Left
-              </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-1">
+            {/* Left Box: Credits remaining and date details */}
+            <div className="space-y-3.5">
+              <div>
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-bold">Credits Remaining</span>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-3xl font-black text-white font-mono">
+                    {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed))}
+                  </span>
+                  <span className="text-xs text-slate-500 font-mono">
+                    / {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : profile.creditsLimit} Active Credits
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-850">
+                <div 
+                  className={`h-full transition-all duration-550 rounded-full ${
+                    profile.plan_name === "FREE TRIAL EXPIRED" 
+                      ? "bg-rose-500 w-0" 
+                      : (profile.creditsLimit - profile.creditsUsed) <= 1 ? "bg-rose-500" : "bg-emerald-500"
+                  }`}
+                  style={{ 
+                    width: `${profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : ((Math.max(0, profile.creditsLimit - profile.creditsUsed) / profile.creditsLimit) * 100)}%` 
+                  }}
+                />
+              </div>
+
+              {/* Renewal date info for premium tiers */}
+              {profile.subscriptionPlan !== "Free" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+                <div className="bg-slate-950/60 border border-slate-850 rounded-xl p-3 flex justify-between items-center">
+                  <span className="text-[10px] font-mono text-slate-400 uppercase block">RENEWAL DATE:</span>
+                  <span className="text-xs font-mono font-black text-sky-450">{profile.nextResetDate}</span>
+                </div>
+              )}
             </div>
 
-            {/* Credit Progress bar */}
-            <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-850">
-              <div 
-                className={`h-full transition-all duration-500 rounded-full ${
-                  (profile.creditsLimit - profile.creditsUsed) <= 10 ? 'bg-rose-500' : (profile.creditsLimit - profile.creditsUsed) <= 50 ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-                style={{ width: `${(Math.max(0, profile.creditsLimit - profile.creditsUsed) / profile.creditsLimit) * 100}%` }}
-              />
+            {/* Right Box: Dynamic Available Upgrades */}
+            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-850 text-xs font-mono space-y-3">
+              <span className="text-slate-400 uppercase font-black tracking-widest text-[9px] block">AVAILABLE PLANS & UPGRADES</span>
+              
+              {/* If FREE TRIAL or FREE TRIAL EXPIRED */}
+              {(profile.subscriptionPlan === "Free" || profile.plan_name === "FREE TRIAL EXPIRED") && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-extrabold text-white block">PRO TRADER</span>
+                      <span className="text-[9px] text-slate-300">200 Credits &bull; $29/mo</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        window.history.pushState(null, "", "/checkout?plan=pro");
+                        window.dispatchEvent(new Event("popstate"));
+                      }}
+                      className="px-3 py-1.5 bg-blue-500 hover:bg-blue-450 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95 shadow-md shadow-blue-500/10"
+                    >
+                      Upgrade To Pro
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between border-t border-slate-900/80 pt-2">
+                    <div>
+                      <span className="font-extrabold text-white block">ELITE TRADER</span>
+                      <span className="text-[9px] text-slate-350">500 Credits &bull; $49/mo</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        window.history.pushState(null, "", "/checkout?plan=elite");
+                        window.dispatchEvent(new Event("popstate"));
+                      }}
+                      className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:opacity-90 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95"
+                    >
+                      Upgrade To Elite
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* If PRO TRADER */}
+              {profile.subscriptionPlan === "Pro" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-extrabold text-white block uppercase">ELITE TRADER</span>
+                      <span className="text-[9px] text-slate-350">500 Premium Credits &bull; $49/mo</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        window.history.pushState(null, "", "/checkout?plan=elite");
+                        window.dispatchEvent(new Event("popstate"));
+                      }}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-indigo-500 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95 shadow-md shadow-emerald-550/10"
+                    >
+                      Upgrade To Elite
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-450 leading-relaxed font-sans italic">
+                    Upgrade to Elite Trader to multiply your analysis quota by 2.5x instantly.
+                  </p>
+                </div>
+              )}
+
+              {/* If ELITE TRADER */}
+              {profile.subscriptionPlan === "Elite" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+                <div className="flex flex-col h-full justify-center py-2 text-center text-emerald-450 uppercase font-black text-[10px] tracking-wide">
+                  <span>&bull; Peak Elite Quota Active &bull;</span>
+                  <span className="text-slate-500 font-mono text-[9px] leading-relaxed pt-1 normal-case font-normal leading-normal select-none">
+                    No further upgrades available. Enjoy priority server-authoritative trade calculations.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
-          
-          {/* Active Status Badge */}
-          {profile.paymentFailed ? (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-450 text-[10px] font-mono font-bold rounded-lg uppercase">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Payment Failure Block Active</span>
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold rounded-lg uppercase">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-              <span>Subscription Secure & Active</span>
-            </div>
-          )}
         </div>
 
-        <div className="lg:col-span-1 space-y-4 border-t lg:border-t-0 lg:border-x border-slate-800/80 pt-4 lg:pt-0 lg:px-6">
-          <h3 className="text-xs font-mono text-slate-400 uppercase tracking-widest font-bold">Subscription Summary</h3>
-          <div className="space-y-2.5 text-xs">
-            <div className="flex justify-between items-center text-slate-300">
-              <span>Selected Tier:</span>
-              <span className="font-mono font-bold text-white uppercase bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
-                {profile.subscriptionPlan === 'Free' ? 'Free Trial' : `${profile.subscriptionPlan} Trader`}
-              </span>
-            </div>
-            <div className="flex justify-between text-slate-300">
-              <span>Next Reset Date:</span>
-              <span className="text-sky-400 font-mono font-bold">{profile.nextResetDate}</span>
-            </div>
-            <div className="flex justify-between text-slate-300">
-              <span>Credit Allocation:</span>
-              <span className="text-emerald-400 font-mono font-bold">{profile.creditsLimit} Analyses / mo</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-1 space-y-4 pt-4 lg:pt-0">
+        {/* Billing simulation engine right column */}
+        <div className="lg:col-span-1 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between text-left space-y-4">
           <h3 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center gap-1.5 font-bold">
             <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
             Billing Simulation Engine
           </h3>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 pt-2">
             <button
               onClick={() => {
                 if (onUpdateProfile) {
@@ -410,7 +441,7 @@ export default function DashboardOverview({
                   });
                 }
               }}
-              className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono text-[10px] font-black uppercase rounded-lg active:scale-95 transition-all text-center cursor-pointer shadow-md shadow-emerald-500/5"
+              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono text-[10px] font-black uppercase rounded-lg active:scale-95 transition-all text-center cursor-pointer shadow-md shadow-emerald-500/5"
             >
               Simulate Monthly Renewal
             </button>
@@ -423,7 +454,7 @@ export default function DashboardOverview({
                   });
                 }
               }}
-              className={`w-full py-2 font-mono text-[10px] font-bold uppercase rounded-lg active:scale-95 transition-all text-center border cursor-pointer ${
+              className={`w-full py-2.5 font-mono text-[10px] font-bold uppercase rounded-lg active:scale-95 transition-all text-center border cursor-pointer ${
                 profile.paymentFailed 
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' 
                   : 'bg-rose-500/10 border-rose-500/30 text-rose-450 hover:bg-rose-500/20'
