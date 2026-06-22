@@ -1,0 +1,94 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  
+  /* Reset background base to the custom premium deep black #09090b */
+  --color-slate-950: #09090b;
+  --color-zinc-950: #09090b;
+  --color-slate-900: #111114;
+  --color-zinc-900: #111114;
+  --color-slate-800: #27272a;
+  --color-zinc-800: #27272a;
+  
+  /* Align brand primary color to Sleek Interface Blue #3b82f6 */
+  --color-brand-primary: #3b82f6;
+  --color-brand-primary-hover: #2563eb;
+  --color-sleek-card: rgba(24, 24, 27, 0.4);
+}
+
+@layer base {
+  body {
+    background-color: #09090b;
+    background-image: radial-gradient(circle at top right, rgba(59, 130, 246, 0.05), transparent 60%);
+    font-family: var(--font-sans);
+    color: #fafafa;
+    min-height: 100vh;
+  }
+}
+
+/* Custom Sleek styling classes matching the demo HTML details: */
+.sleek-panel {
+  background: rgba(24, 24, 27, 0.4);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+}
+
+.sleek-coach-panel {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.15) 0%, rgba(24, 24, 27, 0.4) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 16px;
+}
+
+.sleek-card-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 35s linear infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.03); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 6s infinite ease-in-out;
+}
+
+@keyframes coin-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-coin-bounce {
+  animation: coin-bounce 4s infinite ease-in-out;
+}
+
+/* Glasscard subtle reflections */
+.glass-overlay {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0) 100%);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+

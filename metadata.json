@@ -1,0 +1,6 @@
+{
+  "name": "PropFirm AI Coach",
+  "description": "Premium institutional-grade prop-firm trading coach. Gain a systemic edge, pass your FTMO/FundingPips challenges, and optimize risk with AI analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
