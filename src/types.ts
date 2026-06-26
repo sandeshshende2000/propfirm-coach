@@ -48,6 +48,13 @@ export interface AIAnalysisResult {
   riskAnalysis: RiskAnalysis;
   scenarios: Scenarios;
   coachCommentary: CoachCommentary;
+  detectedSymbol?: string;
+  detectedPrice?: string;
+  detectedTrend?: string;
+  detectedBias?: string;
+  detectedSupport?: string;
+  detectedResistance?: string;
+  confidenceScore?: string;
 }
 
 export interface TradeJournalEntry {
@@ -83,6 +90,7 @@ export interface PropChallenge {
 }
 
 export interface UserProfile {
+  id?: string;
   name: string;
   email: string;
   subscriptionPlan: 'Free' | 'Pro' | 'Elite';
@@ -93,6 +101,7 @@ export interface UserProfile {
   creditsLimit: number;
   nextResetDate: string;
   paymentFailed: boolean;
+  role?: string;
   free_analyses_remaining?: number;
   subscription_status?: string;
   credits_remaining?: number;
@@ -123,4 +132,7 @@ export interface AIAnalysisRecord {
   riskPercent: number;
   session: string;
   result: AIAnalysisResult;
+  dateTime?: string;
+  creditsUsed?: number;
+  status?: string;
 }

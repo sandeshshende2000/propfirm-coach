@@ -13,7 +13,8 @@ import {
   Plus,
   CreditCard,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  LogOut
 } from "lucide-react";
 import { PropChallenge, TradeJournalEntry, UserProfile, AIAnalysisRecord } from "../types";
 
@@ -28,6 +29,7 @@ interface DashboardOverviewProps {
   isDemoMode: boolean;
   onToggleDemoMode: () => void;
   onUpdateProfile?: (updated: UserProfile) => void;
+  onLogout?: () => void;
 }
 
 export default function DashboardOverview({
@@ -41,6 +43,7 @@ export default function DashboardOverview({
   isDemoMode,
   onToggleDemoMode,
   onUpdateProfile,
+  onLogout,
 }: DashboardOverviewProps) {
   const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0] || null;
 
@@ -90,7 +93,7 @@ export default function DashboardOverview({
                 SYSTEM INITIALIZED
               </h2>
               <p className="text-xs text-slate-300">
-                Welcome to PropFirm AI Coach. Start your first analysis to begin tracking your trading performance.
+                Welcome to TradeModeAI. Start your first analysis to begin tracking your trading performance.
               </p>
             </div>
             <button
@@ -156,6 +159,16 @@ export default function DashboardOverview({
             >
               <Plus className="w-3.5 h-3.5 text-slate-300" />
             </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 text-rose-400 hover:text-rose-350 rounded-lg text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
+                title="Logout Session"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Logout</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -167,24 +180,35 @@ export default function DashboardOverview({
           <div className="absolute top-0 right-0 p-3 opacity-15 pointer-events-none">
             <Sparkles className="w-8 h-8 text-blue-400" />
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2 text-xs font-mono">
             <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider font-bold">Current Plan</span>
-              <span className="text-sm font-black font-mono text-blue-450 uppercase tracking-tight block mt-0.5">
+              <span className="text-[10px] text-slate-400 uppercase block tracking-wider font-bold">Current Plan</span>
+              <span className="text-sm font-black text-blue-450 uppercase tracking-tight block mt-0.5">
                 {profile.subscriptionPlan === 'Free' ? 'FREE TRIAL' : (profile.plan_name ? profile.plan_name.toUpperCase() : `${profile.subscriptionPlan.toUpperCase()} TRADER`)}
               </span>
             </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider font-bold">Credits Remaining</span>
-              <span className="text-lg font-black font-mono text-white block mt-0.5">
-                {(profile.total_credits !== undefined && profile.credits_remaining !== undefined) ? `${profile.credits_remaining} / ${profile.total_credits}` : `${Math.max(0, profile.creditsLimit - profile.creditsUsed)} / ${profile.creditsLimit}`}
+            <div className="flex justify-between border-t border-slate-900 pt-1.5">
+              <span className="text-slate-400">Credits Remaining:</span>
+              <span className="font-bold text-white">
+                {profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed)}
               </span>
             </div>
-            <div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase block tracking-wider font-bold">Status</span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-400 uppercase mt-0.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
-                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
-                Active
+            <div className="flex justify-between">
+              <span className="text-slate-400">Credits Used:</span>
+              <span className="font-bold text-slate-300">
+                {profile.creditsUsed}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Total Monthly Credits:</span>
+              <span className="font-bold text-slate-300">
+                {profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit}
+              </span>
+            </div>
+            <div className="flex justify-between border-t border-slate-900 pt-1.5">
+              <span className="text-slate-400">Next Credit Reset:</span>
+              <span className="font-black text-sky-400">
+                {profile.nextResetDate || "N/A (3 Free Runs)"}
               </span>
             </div>
           </div>
@@ -318,7 +342,7 @@ export default function DashboardOverview({
                     {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed))}
                   </span>
                   <span className="text-xs text-slate-500 font-mono">
-                    / {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : profile.creditsLimit} Active Credits
+                    / {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit)} Active Credits
                   </span>
                 </div>
               </div>
@@ -329,10 +353,10 @@ export default function DashboardOverview({
                   className={`h-full transition-all duration-550 rounded-full ${
                     profile.plan_name === "FREE TRIAL EXPIRED" 
                       ? "bg-rose-500 w-0" 
-                      : (profile.creditsLimit - profile.creditsUsed) <= 1 ? "bg-rose-500" : "bg-emerald-500"
+                      : (profile.credits_remaining !== undefined ? profile.credits_remaining : (profile.creditsLimit - profile.creditsUsed)) <= 1 ? "bg-rose-500" : "bg-emerald-500"
                   }`}
                   style={{ 
-                    width: `${profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : ((Math.max(0, profile.creditsLimit - profile.creditsUsed) / profile.creditsLimit) * 100)}%` 
+                    width: `${profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (((profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed)) / (profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit)) * 100)}%` 
                   }}
                 />
               </div>
@@ -594,7 +618,7 @@ export default function DashboardOverview({
           <div>
             <span className="text-xs font-mono text-slate-400">CHALLENGE PROGRESS</span>
             <span className="block text-sm font-bold text-white mt-1 group-hover:text-blue-500 transition-colors">
-              {!hasChallenge ? "No challenge selected" : "Prop Objectives \u2192"}
+              {!hasChallenge ? "No challenge selected" : "Challenge Objectives \u2192"}
             </span>
           </div>
         </button>
@@ -609,6 +633,63 @@ export default function DashboardOverview({
             </span>
           </div>
         </button>
+      </div>
+
+      {/* AI Analysis Usage History Log Section */}
+      <div className="bg-slate-900/30 border border-slate-800/80 rounded-2xl p-6 text-left relative overflow-hidden mt-6">
+        <div className="flex items-center justify-between border-b border-slate-850 pb-4 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <Activity className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white tracking-tight leading-none font-sans">AI Analysis Usage History Log</h2>
+              <span className="text-[9px] text-slate-500 font-mono uppercase font-black">Credits usage audit trail</span>
+            </div>
+          </div>
+          <span className="text-xs font-mono text-slate-400">
+            Total completed: <span className="text-emerald-400 font-bold">{analyses.length}</span>
+          </span>
+        </div>
+
+        {analyses.length === 0 ? (
+          <p className="text-xs text-slate-500 italic font-mono py-8 text-center bg-slate-950/20 border border-dashed border-slate-850 rounded-xl">
+            No completed analysis entries found in database history.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs font-mono text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-850 text-slate-400 text-left">
+                  <th className="py-2.5 px-3">Date & Time</th>
+                  <th className="py-2.5 px-3">Asset</th>
+                  <th className="py-2.5 px-3">Analysis ID</th>
+                  <th className="py-2.5 px-3 text-center">Credits Used</th>
+                  <th className="py-2.5 px-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-900">
+                {analyses.map((rec) => {
+                  const displayDate = rec.dateTime || `${rec.date} 12:00:00 PM`; // fallback
+                  return (
+                    <tr key={rec.id} className="hover:bg-slate-950/40 transition-colors">
+                      <td className="py-2.5 px-3 text-slate-200">{displayDate}</td>
+                      <td className="py-2.5 px-3 font-bold text-blue-400">{rec.pair}</td>
+                      <td className="py-2.5 px-3 text-slate-500 text-[10px]">{rec.id}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-200">{rec.creditsUsed || 1}</td>
+                      <td className="py-2.5 px-3 text-right">
+                        <span className="inline-flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase px-2 py-0.5 rounded">
+                          <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                          Success
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

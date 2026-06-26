@@ -1,7 +1,60 @@
-import React, { useState } from "react";
-import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft, Search, Star, ChevronDown, Clock } from "lucide-react";
 import { AIAnalysisResult, PropChallenge, AIAnalysisRecord, UserProfile } from "../types";
 import { DEMO_ANALYSIS_CHANNELS } from "../data";
+
+const CATEGORIZED_ASSETS: { [category: string]: { symbol: string; name: string }[] } = {
+  "Metals": [
+    { symbol: "XAUUSD", name: "Gold" },
+    { symbol: "XAGUSD", name: "Silver" },
+  ],
+  "Forex": [
+    { symbol: "EURUSD", name: "Euro / US Dollar" },
+    { symbol: "GBPUSD", name: "British Pound / US Dollar" },
+    { symbol: "USDJPY", name: "US Dollar / Japanese Yen" },
+    { symbol: "USDCHF", name: "US Dollar / Swiss Franc" },
+    { symbol: "AUDUSD", name: "Australian Dollar / US Dollar" },
+    { symbol: "NZDUSD", name: "New Zealand Dollar / US Dollar" },
+    { symbol: "USDCAD", name: "US Dollar / Canadian Dollar" },
+    { symbol: "EURJPY", name: "Euro / Japanese Yen" },
+    { symbol: "GBPJPY", name: "British Pound / Japanese Yen" },
+    { symbol: "EURGBP", name: "Euro / British Pound" },
+  ],
+  "Crypto": [
+    { symbol: "BTCUSD", name: "Bitcoin / US Dollar" },
+    { symbol: "ETHUSD", name: "Ethereum / US Dollar" },
+    { symbol: "SOLUSD", name: "Solana / US Dollar" },
+    { symbol: "BNBUSD", name: "Binance Coin / US Dollar" },
+    { symbol: "XRPUSD", name: "Ripple / US Dollar" },
+    { symbol: "DOGEUSD", name: "Dogecoin / US Dollar" },
+    { symbol: "ADAUSD", name: "Cardano / US Dollar" },
+  ],
+  "US Indices": [
+    { symbol: "US30", name: "Dow Jones 30" },
+    { symbol: "NAS100", name: "Nasdaq 100" },
+    { symbol: "SPX500", name: "S&P 500" },
+    { symbol: "US2000", name: "Russell 2000" },
+  ],
+  "European Indices": [
+    { symbol: "GER40", name: "DAX 40" },
+    { symbol: "UK100", name: "FTSE 100" },
+  ],
+  "Asian Indices": [
+    { symbol: "JP225", name: "Nikkei 225" },
+  ],
+  "Indian Indices": [
+    { symbol: "NIFTY50", name: "Nifty 50" },
+    { symbol: "BANKNIFTY", name: "Bank Nifty" },
+    { symbol: "FINNIFTY", name: "Nifty Financial Services" },
+    { symbol: "MIDCPNIFTY", name: "Nifty Midcap 50" },
+    { symbol: "SENSEX", name: "BSE Sensex" },
+  ],
+  "Commodities": [
+    { symbol: "WTI Crude Oil", name: "WTI Crude Oil" },
+    { symbol: "Brent Crude", name: "Brent Crude" },
+    { symbol: "Natural Gas", name: "Natural Gas" },
+  ]
+};
 
 interface AIAnalysisProps {
   profile: UserProfile;
@@ -21,10 +74,80 @@ export default function AIAnalysis({
   onNavigateToTab
 }: AIAnalysisProps) {
   // Config state
-  const [pair, setPair] = useState("XAUUSD");
+  const [pair, setPair] = useState(() => localStorage.getItem("last_selected_pair") || "XAUUSD");
   const [accountSize, setAccountSize] = useState(activeChallenge?.accountSize || 100000);
   const [riskPercent, setRiskPercent] = useState(1);
   const [session, setSession] = useState("New York Open");
+
+  // Dropdown states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [recents, setRecents] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("recent_pairs");
+      return stored ? JSON.parse(stored) : ["XAUUSD", "BTCUSD", "EURUSD"];
+    } catch {
+      return ["XAUUSD", "BTCUSD", "EURUSD"];
+    }
+  });
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("favorite_pairs");
+      return stored ? JSON.parse(stored) : ["XAUUSD"];
+    } catch {
+      return ["XAUUSD"];
+    }
+  });
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const selectPair = (symbol: string) => {
+    setPair(symbol);
+    localStorage.setItem("last_selected_pair", symbol);
+
+    // Update recents
+    const updatedRecents = [symbol, ...recents.filter(r => r !== symbol)].slice(0, 5);
+    setRecents(updatedRecents);
+    localStorage.setItem("recent_pairs", JSON.stringify(updatedRecents));
+    setIsDropdownOpen(false);
+    setSearchQuery("");
+  };
+
+  const toggleFavorite = (symbol: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    let updatedFavorites: string[];
+    if (favorites.includes(symbol)) {
+      updatedFavorites = favorites.filter(f => f !== symbol);
+    } else {
+      updatedFavorites = [...favorites, symbol];
+    }
+    setFavorites(updatedFavorites);
+    localStorage.setItem("favorite_pairs", JSON.stringify(updatedFavorites));
+  };
+
+  const getAssetDetails = (symbol: string) => {
+    for (const [category, list] of Object.entries(CATEGORIZED_ASSETS)) {
+      const found = list.find(a => a.symbol === symbol);
+      if (found) {
+        return { ...found, category };
+      }
+    }
+    return { symbol, name: "Unknown Asset", category: "Other" };
+  };
+
+  const currentAsset = getAssetDetails(pair);
 
   // Screenshot base64 attachments state
   const [h1Chart, setH1Chart] = useState<string | null>(null);
@@ -85,6 +208,12 @@ export default function AIAnalysis({
       return;
     }
 
+    // Require all three screenshots to be uploaded
+    if (!h1Chart || !m15Chart || !m5Chart) {
+      setWarningMessage("Please upload all three required screenshots (H1, M15, and M5) to perform the combined multi-timeframe analysis.");
+      return;
+    }
+
     setIsAnalyzing(true);
     setWarningMessage(null);
 
@@ -100,51 +229,42 @@ export default function AIAnalysis({
           h1Chart,
           m15Chart,
           m5Chart,
+          profile,
+          userId: profile?.id,
         }),
       });
 
       if (response.ok) {
-        const parsed = await response.json();
-        setResult(parsed);
+        const { result: analysisResult, updatedProfile } = await response.json();
+        setResult(analysisResult);
+        
+        // Update user profile credits
+        if (onUpdateProfile && updatedProfile) {
+          onUpdateProfile(updatedProfile);
+        }
+
+        // Save completed analysis to database with detailed fields
         if (onAddAnalysis) {
           onAddAnalysis({
             pair,
             accountSize,
             riskPercent,
             session,
-            result: parsed,
-          });
+            result: analysisResult,
+            dateTime: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            creditsUsed: 1,
+            status: "Success",
+          } as any); // cast to any to allow extra fields
         }
       } else {
         const err = await response.json();
         setWarningMessage(err.error || "Server was unable to complete the analysis blueprint.");
-        // Support fallback
-        const fallback = DEMO_ANALYSIS_CHANNELS;
-        setResult(fallback);
-        if (onAddAnalysis) {
-          onAddAnalysis({
-            pair,
-            accountSize,
-            riskPercent,
-            session,
-            result: fallback,
-          });
-        }
+        // Do not deduct a credit or save any fallback analysis on API or server errors!
       }
     } catch (e) {
       console.error(e);
-      setWarningMessage("Local environment pipeline timeout. Displaying pre-analyzed model results.");
-      const fallback = DEMO_ANALYSIS_CHANNELS;
-      setResult(fallback);
-      if (onAddAnalysis) {
-        onAddAnalysis({
-          pair,
-          accountSize,
-          riskPercent,
-          session,
-          result: fallback,
-        });
-      }
+      setWarningMessage("Analysis failed due to a connection timeout or network issue. No credit has been deducted.");
+      // Do not deduct a credit or save any fallback analysis on exception!
     } finally {
       setIsAnalyzing(false);
     }
@@ -258,15 +378,149 @@ export default function AIAnalysis({
             </h3>
 
             {/* Trading Pair Selector */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 relative" ref={dropdownRef}>
               <label className="text-xs text-slate-400 font-mono block">TRADING PAIR</label>
-              <input
-                type="text"
-                placeholder="XAUUSD, BTCUSD, EURUSD etc."
-                value={pair}
-                onChange={(e) => setPair(e.target.value.toUpperCase())}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg text-xs font-bold text-white px-3 py-2.5 outline-none focus:border-emerald-500/80"
-              />
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 rounded-lg text-xs font-bold text-white px-3 py-2.5 outline-none flex items-center justify-between transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400 font-extrabold">{currentAsset.symbol}</span>
+                  <span className="text-slate-400 font-normal text-[11px] truncate max-w-[120px]">({currentAsset.name})</span>
+                  <span className="text-[9px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-wider scale-90">
+                    {currentAsset.category}
+                  </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isDropdownOpen && (
+                <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-850 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[350px]">
+                  {/* Search Input Box */}
+                  <div className="p-2 border-b border-slate-900 bg-slate-950 flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-slate-500 shrink-0 ml-1" />
+                    <input
+                      type="text"
+                      placeholder="Search asset or category..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-transparent border-none text-xs font-medium text-white placeholder-slate-500 outline-none py-1"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="overflow-y-auto flex-1 py-1 custom-scrollbar">
+                    {/* Favorites Section */}
+                    {favorites.length > 0 && !searchQuery && (
+                      <div className="px-2 py-1.5 border-b border-slate-900">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider font-mono flex items-center gap-1 mb-1 px-1">
+                          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          Favorites
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {favorites.map(favSymbol => {
+                            const details = getAssetDetails(favSymbol);
+                            return (
+                              <button
+                                key={favSymbol}
+                                type="button"
+                                onClick={() => selectPair(favSymbol)}
+                                className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/40 hover:bg-slate-900 border border-slate-800/50 hover:border-slate-700 text-left text-xs transition-all"
+                              >
+                                <span className="font-bold text-slate-200">{favSymbol}</span>
+                                <span className="text-[9px] text-slate-500 truncate max-w-[50px]">{details.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recents Section */}
+                    {recents.length > 0 && !searchQuery && (
+                      <div className="px-2 py-1.5 border-b border-slate-900">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider font-mono flex items-center gap-1 mb-1 px-1">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          Recent Assets
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {recents.map(recentSymbol => (
+                            <button
+                              key={recentSymbol}
+                              type="button"
+                              onClick={() => selectPair(recentSymbol)}
+                              className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-850 border border-slate-800 text-[10px] font-bold text-slate-300 transition-all"
+                            >
+                              {recentSymbol}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Categorized Assets */}
+                    {(() => {
+                      let matchedAny = false;
+                      const categoriesList = Object.entries(CATEGORIZED_ASSETS).map(([category, list]) => {
+                        const filtered = list.filter(asset => 
+                          asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          asset.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          category.toLowerCase().includes(searchQuery.toLowerCase())
+                        );
+
+                        if (filtered.length === 0) return null;
+                        matchedAny = true;
+
+                        return (
+                          <div key={category} className="px-2 py-1">
+                            <div className="text-[9px] text-slate-500 font-bold uppercase tracking-wider font-mono mb-1 px-1">
+                              {category}
+                            </div>
+                            <div className="space-y-0.5">
+                              {filtered.map(asset => {
+                                const isFav = favorites.includes(asset.symbol);
+                                return (
+                                  <div
+                                    key={asset.symbol}
+                                    onClick={() => selectPair(asset.symbol)}
+                                    className={`flex items-center justify-between px-2 py-1.5 rounded-lg cursor-pointer text-xs transition-all group ${
+                                      pair === asset.symbol
+                                        ? "bg-emerald-500/10 border border-emerald-500/20 text-white"
+                                        : "hover:bg-slate-900 border border-transparent text-slate-300"
+                                    }`}
+                                  >
+                                    <div className="flex flex-col">
+                                      <span className="font-extrabold">{asset.symbol}</span>
+                                      <span className="text-[10px] text-slate-500 leading-tight">{asset.name}</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => toggleFavorite(asset.symbol, e)}
+                                      className="p-1 text-slate-500 hover:text-amber-500 transition-colors"
+                                    >
+                                      <Star className={`w-3.5 h-3.5 ${isFav ? 'text-amber-500 fill-amber-500' : ''}`} />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      });
+
+                      if (!matchedAny) {
+                        return (
+                          <div className="px-4 py-6 text-center text-slate-500 text-xs">
+                            No matching assets found.
+                          </div>
+                        );
+                      }
+                      return categoriesList;
+                    })()}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Account Size */}
@@ -324,12 +578,6 @@ export default function AIAnalysis({
                 <Upload className="w-4 h-4 text-emerald-400" />
                 2. Market Charts (H1, M15, M5)
               </h3>
-              <button
-                onClick={loadDemoCharts}
-                className="text-[10px] font-mono text-emerald-400 hover:underline border border-emerald-500/10 bg-emerald-500/5 px-2 py-0.5 rounded"
-              >
-                Autoload Presets
-              </button>
             </div>
 
             <div className="space-y-3.5">
@@ -510,6 +758,74 @@ export default function AIAnalysis({
 
           {!isAnalyzing && result && (
             <div className="space-y-6 animate-fade-in text-slate-100 pb-10">
+              {/* Auto-Detected Chart parameters */}
+              <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                  <Brain className="w-5 h-5 text-emerald-400" />
+                  <h3 className="font-bold text-sm text-slate-100 font-sans">
+                    Neural AI Vision Extraction Parameters
+                  </h3>
+                </div>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">TRADING SYMBOL</span>
+                    <span className="text-sm font-black text-emerald-400 mt-1 block">
+                      {result.detectedSymbol || "Not Available"}
+                    </span>
+                  </div>
+                  
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">MARKET PRICE</span>
+                    <span className="text-sm font-black text-slate-200 mt-1 block">
+                      {result.detectedPrice || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">DETECTED TREND</span>
+                    <span className="text-sm font-black text-slate-200 mt-1 block">
+                      {result.detectedTrend || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">CONFIDENCE SCORE</span>
+                    <span className="text-sm font-black text-emerald-400 mt-1 block">
+                      {result.confidenceScore || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">DETECTED BIAS</span>
+                    <span className="text-sm font-black text-slate-200 mt-1 block">
+                      {result.detectedBias || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">DETECTED SUPPORT</span>
+                    <span className="text-sm font-black text-emerald-500/80 mt-1 block">
+                      {result.detectedSupport || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">DETECTED RESISTANCE</span>
+                    <span className="text-sm font-black text-rose-400 mt-1 block">
+                      {result.detectedResistance || "Not Available"}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-900">
+                    <span className="text-[9px] text-slate-500 block uppercase font-bold">REMAINING CREDITS</span>
+                    <span className="text-sm font-black text-amber-400 mt-1 block">
+                      {remainingCredits}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Top Banner: Market Bias & Probability */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-900/40 border border-slate-800/80 rounded-2xl overflow-hidden">
                 <div className="p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40">

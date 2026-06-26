@@ -183,7 +183,7 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
             </div>
             <div>
               <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-blue-400 via-sky-200 to-slate-100 bg-clip-text text-transparent">
-                PropFirm AI Coach
+                TradeModeAI
               </span>
               <span className="block text-[9px] font-mono tracking-widest text-blue-500 uppercase font-black">
                 INSTITUTIONAL SAAS CORE
@@ -1204,10 +1204,10 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
               <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shadow-md">
                 <Brain className="w-5 h-5 text-slate-950" />
               </div>
-              <span className="font-extrabold text-sm text-white font-mono tracking-tight">PropFirm AI Coach</span>
+              <span className="font-extrabold text-sm text-white font-mono tracking-tight">TradeModeAI</span>
             </div>
             <p className="text-slate-500 text-xs leading-relaxed max-w-xs font-mono">
-              Expert-level multi-frame analytical synthesis optimized for institutional and individual evaluation challenges worldwide.
+              AI-Powered Trading Intelligence. Expert-level multi-frame analytical synthesis optimized for institutional and individual traders worldwide.
             </p>
           </div>
 
@@ -1260,7 +1260,7 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
             <span className="hover:text-blue-400 transition-colors cursor-pointer">LinkedIn</span>
           </div>
           <p className="text-slate-500 text-xs font-mono text-center sm:text-right">
-            &copy; 2026 PropFirm AI Coach. All Rights Reserved.
+            &copy; 2026 TradeModeAI. All Rights Reserved.
           </p>
         </div>
       </footer>

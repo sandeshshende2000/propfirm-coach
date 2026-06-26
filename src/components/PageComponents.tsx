@@ -36,6 +36,7 @@ import {
   Brain
 } from "lucide-react";
 import { SAAS_PLANS } from "../data";
+import { supabase, isSupabaseConfigured } from "../supabaseClient";
 
 // Helper function to render a cohesive CTA Section
 import { AIAnalysisResult } from "../types";
@@ -58,7 +59,7 @@ export function SharedNavbar({ navigate, isDashboard = false }: { navigate: (pat
           </div>
           <div>
             <span className="font-extrabold text-base tracking-tight bg-gradient-to-r from-blue-400 via-sky-200 to-slate-100 bg-clip-text text-transparent">
-              PropFirm AI Coach
+              TradeModeAI
             </span>
             <span className="block text-[8px] font-mono tracking-widest text-blue-500 uppercase font-black">
               INSTITUTIONAL CORE
@@ -104,7 +105,7 @@ export function SharedFooter({ navigate }: { navigate: (path: string) => void })
             <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center cursor-pointer">
               <Activity className="w-4.5 h-4.5 text-slate-950" />
             </div>
-            <span className="font-extrabold text-xs text-white font-mono tracking-tight cursor-pointer">PropFirm AI Coach</span>
+            <span className="font-extrabold text-xs text-white font-mono tracking-tight cursor-pointer">TradeModeAI</span>
           </div>
           <p className="text-slate-500 text-[11px] leading-relaxed max-w-xs font-mono">
             Intraday model evaluation, risk calibration analytics, and vision-model multi-timeframe scans.
@@ -153,7 +154,7 @@ export function SharedFooter({ navigate }: { navigate: (path: string) => void })
 
       <div className="max-w-7xl mx-auto pt-8 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-4">
         <p className="text-slate-500 text-xs font-mono text-center sm:text-left">
-          &copy; 2026 PropFirm AI Coach Inc. All institutional rights validated.
+          &copy; 2026 TradeModeAI. All Rights Reserved.
         </p>
         <span className="text-slate-400 text-xs font-mono bg-slate-900 px-3 py-1 rounded border border-slate-805/60">
           SYSTEM HEALTH: <span className="text-emerald-400 font-bold">100% SECURE</span>
@@ -277,7 +278,7 @@ export function FeaturesPage({ navigate }: RouteProps) {
             Institutional Technical Features
           </h1>
           <p className="text-slate-400 text-sm leading-relaxed max-w-xl mx-auto">
-            Explore our advanced vision-model trading stack engineered specifically to protect capital and speed up prop-firm scaling metrics.
+            Explore our advanced vision-model trading stack engineered specifically to protect capital and speed up performance scaling metrics.
           </p>
         </div>
 
@@ -532,8 +533,8 @@ export function FaqPage({ navigate }: RouteProps) {
       cat: "Billing"
     },
     {
-      q: "Does this violate prop firm third-party EA policies?",
-      a: "No! This is an educational analysis and psychological coach desk. No trades are executed automatically on your terminals. You retain absolute control over manual inputs, adhering strictly to FTMO and FundingPips terms.",
+      q: "Does this violate third-party trading policies?",
+      a: "No! This is an educational analysis and psychological coach desk. No trades are executed automatically on your terminals. You retain absolute control over manual inputs, adhering strictly to standard trading terms.",
       cat: "Safety"
     }
   ];
@@ -556,7 +557,7 @@ export function FaqPage({ navigate }: RouteProps) {
             Support FAQs
           </h1>
           <p className="text-slate-400 text-sm max-w-md mx-auto leading-relaxed">
-            Quickly search and locate diagnostic resolutions for the vision system, capital limits, and prop guardrails.
+            Quickly search and locate diagnostic resolutions for the vision system, capital limits, and risk guardrails.
           </p>
 
           <div className="pt-6 max-w-md mx-auto relative">
@@ -651,7 +652,7 @@ export function ContactPage({ navigate }: RouteProps) {
               <Mail className="w-4 h-4 text-blue-400" />
               <div>
                 <span className="block text-[10px] text-slate-500 font-bold uppercase">SECURED GENERAL EMAIL</span>
-                <span className="text-xs text-white">support@propfirm-aicoach.com</span>
+                <span className="text-xs text-white">support@trademodeai.com</span>
               </div>
             </div>
 
@@ -659,7 +660,7 @@ export function ContactPage({ navigate }: RouteProps) {
               <Phone className="w-4 h-4 text-emerald-400" />
               <div>
                 <span className="block text-[10px] text-slate-500 font-bold uppercase">HOTLINE ALERT LINE</span>
-                <span className="text-xs text-white">+1 (800) 555-PROP-AI</span>
+                <span className="text-xs text-white">+1 (800) 555-TRADE-AI</span>
               </div>
             </div>
 
@@ -729,7 +730,7 @@ export function ContactPage({ navigate }: RouteProps) {
                   rows={4}
                   value={msg}
                   onChange={(e) => setMsg(e.target.value)}
-                  placeholder="Describe your assessment requirements, current prop balances, or account configurations..."
+                  placeholder="Describe your assessment requirements, current account balances, or account configurations..."
                   className="w-full bg-slate-950 border border-slate-850 rounded-xl p-3.5 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
                 />
               </div>
@@ -780,7 +781,7 @@ export function AboutPage({ navigate }: RouteProps) {
           <div className="space-y-4 text-left">
             <h2 className="text-xl font-bold text-white font-mono uppercase tracking-tight text-blue-400">Our Backstory</h2>
             <p className="text-xs text-slate-400 leading-relaxed font-mono">
-              Founded in 2024 by a coalition of institutional proprietary desk traders and vision model researchers, PropFirm AI Coach bridges the gap between raw trading psychology and exact risk calculus.
+              Founded in 2024 by a coalition of institutional proprietary desk traders and vision model researchers, TradeModeAI bridges the gap between raw trading psychology and exact risk calculus.
             </p>
             <p className="text-xs text-slate-400 leading-relaxed font-mono">
               We realized that 94% of traders failures are not due to incorrect charts, but due to trailing drawdown parameters, emotional revenge scaling on high-risk currencies, or losing session direction.
@@ -825,14 +826,56 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [isDemo, setIsDemo] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg("");
     if (!email) return;
-    if (onLoginSuccess) {
-      onLoginSuccess(name || "Pro Trader", email);
+
+    if (isSupabaseConfigured && supabase) {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+          setIsLoading(false);
+          return;
+        }
+
+        let displayName = name;
+        if (data.user) {
+          // Attempt to retrieve profile name
+          const { data: profileRow } = await supabase
+            .from("profiles")
+            .select("name")
+            .eq("id", data.user.id)
+            .single();
+          if (profileRow?.name) {
+            displayName = profileRow.name;
+          }
+        }
+
+        if (onLoginSuccess) {
+          onLoginSuccess(displayName || "Pro Trader", email);
+        }
+        navigate("/dashboard");
+      } catch (err: any) {
+        setErrorMsg(err.message || "An authentication error occurred.");
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      if (onLoginSuccess) {
+        onLoginSuccess(name || "Pro Trader", email);
+      }
+      navigate("/dashboard");
     }
-    navigate("/dashboard");
   };
 
   return (
@@ -851,6 +894,13 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
             <h1 className="text-xl font-bold tracking-tight text-white font-mono uppercase">Client Portal Entry</h1>
             <p className="text-[10px] text-slate-450 font-mono tracking-widest">SECURE TRANSACTION SECURITY HUB</p>
           </div>
+
+          {errorMsg && (
+            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-mono rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
@@ -871,7 +921,7 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="marcus@propfirm.com"
+                placeholder="marcus@trademodeai.com"
                 className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
               />
             </div>
@@ -913,9 +963,10 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
 
             <button
               type="submit"
-              className="w-full py-3 bg-blue-500 hover:bg-blue-400 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4"
+              disabled={isLoading}
+              className="w-full py-3 bg-blue-500 hover:bg-blue-400 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4 disabled:opacity-50"
             >
-              <span>Connect to Secure Telemetry</span>
+              <span>{isLoading ? "Synchronizing secure hub..." : "Connect to Secure Telemetry"}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
@@ -942,8 +993,9 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [terms, setTerms] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
 
@@ -968,8 +1020,37 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
       return;
     }
 
-    if (onSignupSuccess) {
-      onSignupSuccess(name, email, "Free");
+    if (isSupabaseConfigured && supabase) {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              name: name,
+            }
+          }
+        });
+
+        if (error) {
+          setErrorMsg(error.message);
+          setIsLoading(false);
+          return;
+        }
+
+        if (onSignupSuccess) {
+          onSignupSuccess(name, email, "Free");
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || "An authentication error occurred.");
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      if (onSignupSuccess) {
+        onSignupSuccess(name, email, "Free");
+      }
     }
   };
 
@@ -1016,7 +1097,7 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="marcus@propfirm.com"
+                placeholder="marcus@trademodeai.com"
                 className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
               />
             </div>
@@ -1058,9 +1139,10 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4"
+              disabled={isLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4 disabled:opacity-50"
             >
-              <span>Create Free Account</span>
+              <span>{isLoading ? "Provisioning portal account..." : "Create Free Account"}</span>
             </button>
           </form>
 
@@ -1178,7 +1260,7 @@ export function PrivacyPolicyPage({ navigate }: RouteProps) {
 
         <section className="space-y-4 text-slate-300 font-sans text-sm leading-relaxed">
           <p>
-            At PropFirm AI Coach, we prioritize protecting your trading metrics and diagnostic chart uploads. This policy delineates how we handle, store, and utilize your personal information and diagnostic screenshot assets.
+            At TradeModeAI, we prioritize protecting your trading metrics and diagnostic chart uploads. This policy delineates how we handle, store, and utilize your personal information and diagnostic screenshot assets.
           </p>
 
           <h3 className="text-base font-bold text-white font-mono uppercase pt-4 border-b border-slate-850 pb-2">1. Data Collection Methods</h3>
@@ -1214,7 +1296,7 @@ export function TermsPage({ navigate }: RouteProps) {
 
         <section className="space-y-4 text-slate-300 font-sans text-sm leading-relaxed">
           <p>
-            Welcome to the PropFirm AI Coach operational suite. By utilizing our analysis console, custom interactive risk models, or psychology coaching, you agree to these bounds.
+            Welcome to the TradeModeAI operational suite. By utilizing our analysis console, custom interactive risk models, or psychology coaching, you agree to these bounds.
           </p>
 
           <h3 className="text-base font-bold text-white font-mono uppercase pt-4 border-b border-slate-850 pb-2">1. Educational Purpose Constraints</h3>
@@ -1224,7 +1306,7 @@ export function TermsPage({ navigate }: RouteProps) {
 
           <h3 className="text-base font-bold text-white font-mono uppercase pt-4 border-b border-slate-850 pb-2">2. Evaluation Safety Compliance</h3>
           <p>
-            Traders are solely responsible for ensuring manual compliance with FTMO, FundedNext, and FundingPips daily drawdown rules. PropFirm AI Coach is helper educational SaaS, not guaranteed legal insurance.
+            Traders are solely responsible for ensuring manual compliance with drawdown rules. TradeModeAI is helper educational SaaS, not guaranteed legal insurance.
           </p>
         </section>
       </main>
@@ -1260,7 +1342,7 @@ export function RefundPolicyPage({ navigate }: RouteProps) {
 
           <h3 className="text-base font-bold text-white font-mono uppercase pt-4 border-b border-slate-850 pb-2">2. Custom Credit Adjustments</h3>
           <p>
-            If you breached your prop firm balance limits due to clear system malfunction on our UI, our billing department will issue VIP coaching credits as additional assistance.
+            If you breached your account balance limits due to clear system malfunction on our UI, our billing department will issue VIP coaching credits as additional assistance.
           </p>
         </section>
       </main>

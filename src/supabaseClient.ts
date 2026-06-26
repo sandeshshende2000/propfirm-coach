@@ -44,7 +44,7 @@ const DEFAULT_REAL_USER_SCHEMA: DatabaseSchema = {
     {
       id: "m-welcome",
       role: "assistant",
-      content: "Welcome to PropFirm AI Coach. Start your first analysis to begin tracking your trading performance.",
+      content: "Welcome to TradeModeAI. Start your first analysis to begin tracking your trading performance.",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]
@@ -75,7 +75,7 @@ class RealTimeDatabase {
 
   // Local storage keys
   private getStorageKey(key: string, isDemo: boolean): string {
-    return isDemo ? `PFAICOACH_DEMO_${key}` : `PFAICOACH_REAL_${key}`;
+    return isDemo ? `TRADEMODEAI_DEMO_${key}` : `TRADEMODEAI_REAL_${key}`;
   }
 
   // Generic Getters

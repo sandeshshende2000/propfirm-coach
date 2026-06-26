@@ -347,7 +347,7 @@ export default function CheckoutPage({
                         onChange={(e) => setAcceptTerms(e.target.checked)}
                         className="rounded border-slate-850 bg-slate-950 text-emerald-500 outline-none mt-0.5 shrink-0"
                       />
-                      <span>I agree to the PropFirm terms of service and authorize local verification check of this transaction scope.</span>
+                      <span>I agree to the TradeModeAI terms of service and authorize local verification check of this transaction scope.</span>
                     </div>
                   </div>
 

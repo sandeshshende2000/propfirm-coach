@@ -23,7 +23,7 @@ import {
 // Types & Data
 import { PropChallenge, TradeJournalEntry, UserProfile, ChatMessage, AIAnalysisRecord } from "./types";
 import { SAMPLE_USER_PROFILE, SAMPLE_CHALLENGES, SAMPLE_TRADE_JOURNAL } from "./data";
-import { db } from "./supabaseClient";
+import { db, supabase, isSupabaseConfigured } from "./supabaseClient";
 
 // Sub-screens components
 import LandingPage from "./components/LandingPage";
@@ -65,7 +65,7 @@ export default function App() {
 
   // Auth session manager state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem("PFAICOACH_IS_AUTHENTICATED") === "true";
+    return localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
   });
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Protected route enforcement hook
+  // Routing and access control enforcement hook
   useEffect(() => {
     const protectedPaths = [
       "/dashboard",
@@ -94,15 +94,22 @@ export default function App() {
       "/settings",
       "/admin"
     ];
-    // If not authenticated and attempting to visit any portal/protected route:
-    if (protectedPaths.includes(pathname) && !isAuthenticated) {
-      navigate("/login");
+    const publicAuthPaths = ["/", "/login", "/signup"];
+
+    if (isAuthenticated) {
+      if (publicAuthPaths.includes(pathname)) {
+        navigate("/dashboard");
+      }
+    } else {
+      if (protectedPaths.includes(pathname)) {
+        navigate("/login");
+      }
     }
   }, [pathname, isAuthenticated]);
 
   const handleLoginSuccess = (name: string, email: string) => {
     setIsAuthenticated(true);
-    localStorage.setItem("PFAICOACH_IS_AUTHENTICATED", "true");
+    localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
 
     const currentProfile = db.getProfile(isDemoMode);
     const updated = {
@@ -138,19 +145,22 @@ export default function App() {
     db.saveProfile(updatedProfile, isDemoMode);
 
     setIsAuthenticated(true);
-    localStorage.setItem("PFAICOACH_IS_AUTHENTICATED", "true");
+    localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
 
     navigate("/dashboard");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+    }
     setIsAuthenticated(false);
-    localStorage.removeItem("PFAICOACH_IS_AUTHENTICATED");
+    localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
     navigate("/");
   };
 
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem("PFAICOACH_IS_DEMO");
+    const saved = localStorage.getItem("TRADEMODEAI_IS_DEMO");
     return saved ? JSON.parse(saved) : false; // Default to false (Real Account)
   });
 
@@ -165,9 +175,173 @@ export default function App() {
     return currentChallenges[0]?.id || "";
   });
 
+  // 1. Listen for Supabase session on mount & react to Auth state changes
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setIsAuthenticated(true);
+        localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
+        const publicAuthPaths = ["/", "/login", "/signup"];
+        if (publicAuthPaths.includes(window.location.pathname)) {
+          navigate("/dashboard");
+        }
+      } else {
+        const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
+        setIsAuthenticated(false);
+        localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+        if (wasAuthenticated) {
+          // Session expired
+          navigate("/login");
+        } else {
+          // Unauthenticated guest user
+          const protectedPaths = [
+            "/dashboard",
+            "/analysis",
+            "/journal",
+            "/challenge",
+            "/calculator",
+            "/analytics",
+            "/settings",
+            "/admin"
+          ];
+          if (protectedPaths.includes(window.location.pathname)) {
+            navigate("/login");
+          }
+        }
+      }
+    };
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setIsAuthenticated(true);
+        localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
+        const publicAuthPaths = ["/", "/login", "/signup"];
+        if (publicAuthPaths.includes(window.location.pathname)) {
+          navigate("/dashboard");
+        }
+      } else {
+        const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
+        setIsAuthenticated(false);
+        localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+        if (event === "SIGNED_OUT") {
+          navigate("/");
+        } else if (wasAuthenticated) {
+          // Session expired
+          navigate("/login");
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 2. Load and map real-time profile/analyses directly from Supabase tables
+  useEffect(() => {
+    if (!isAuthenticated || isDemoMode || !isSupabaseConfigured || !supabase) return;
+
+    const loadSupabaseData = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // Fetch user profile
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single();
+
+        if (profileData) {
+          const mappedProfile: UserProfile = {
+            id: user.id,
+            name: profileData.name || profileData.name_display || "Trader",
+            email: profileData.email || user.email || "",
+            subscriptionPlan: profileData.subscriptionPlan || (profileData.Plan === "FREE_TRIAL" ? "Free" : "Pro"),
+            accountBalance: profileData.accountBalance || 100000,
+            joinDate: profileData.joinDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+            creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : (profileData.Credits !== undefined ? 3 - profileData.Credits : 0),
+            creditsLimit: profileData.creditsLimit !== undefined ? profileData.creditsLimit : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+            nextResetDate: profileData.nextResetDate || "N/A",
+            paymentFailed: !!profileData.paymentFailed,
+            role: profileData.role || "user",
+            plan_name: profileData.plan_name || profileData.Plan || "FREE TRIAL",
+            subscription_status: profileData.subscription_status || profileData.Subscription || "inactive",
+            free_analyses_remaining: profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : (profileData.Credits !== undefined ? profileData.Credits : 3),
+            credits_remaining: profileData.credits_remaining !== undefined ? profileData.credits_remaining : (profileData.Credits !== undefined ? profileData.Credits : 3),
+            total_credits: profileData.total_credits !== undefined ? profileData.total_credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+          };
+          setProfile(mappedProfile);
+          db.saveProfile(mappedProfile, false);
+        }
+
+        // Fetch user analysis history
+        const { data: historyData } = await supabase
+          .from("analysis_history")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("dateTime", { ascending: false });
+
+        if (historyData) {
+          const mappedAnalyses: AIAnalysisRecord[] = historyData.map((row: any) => ({
+            id: row.id,
+            date: row.dateTime ? row.dateTime.split(" ")[0] : row.date_time || "",
+            pair: row.pair || row.asset || row.Asset || "UNKNOWN",
+            accountSize: row.accountSize || row.account_size || 100000,
+            riskPercent: row.riskPercent || row.risk_percent || 1,
+            session: row.session || "",
+            result: typeof row.result === "string" ? JSON.parse(row.result) : row.result,
+            dateTime: row.dateTime || row.date_time,
+            creditsUsed: row.creditsUsed || row.credits_used || 1,
+            status: row.status || "Success",
+          }));
+          setAnalyses(mappedAnalyses);
+          db.saveAnalyses(mappedAnalyses, false);
+        }
+      } catch (e) {
+        console.error("Error loading Supabase data:", e);
+      }
+    };
+
+    loadSupabaseData();
+
+    // Set up real-time postgres_changes channels to auto-refresh the dashboard
+    const profilesSubscription = supabase
+      .channel("profiles-changes-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profiles" },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .subscribe();
+
+    const historySubscription = supabase
+      .channel("history-changes-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "analysis_history" },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      profilesSubscription.unsubscribe();
+      historySubscription.unsubscribe();
+    };
+  }, [isAuthenticated, isDemoMode]);
+
   // Sync state with database / mode changes
   useEffect(() => {
-    localStorage.setItem("PFAICOACH_IS_DEMO", JSON.stringify(isDemoMode));
+    localStorage.setItem("TRADEMODEAI_IS_DEMO", JSON.stringify(isDemoMode));
     setProfile(db.getProfile(isDemoMode));
     setChallenges(db.getChallenges(isDemoMode));
     setTrades(db.getTrades(isDemoMode));
@@ -221,7 +395,7 @@ export default function App() {
   // AI Psychologist Companion states
   const [showCoachDesk, setShowCoachDesk] = useState(false);
   const [coachMessages, setCoachMessages] = useState<ChatMessage[]>(() => {
-    const saved = localStorage.getItem("PFAICOACH_CHAT");
+    const saved = localStorage.getItem("TRADEMODEAI_CHAT");
     if (saved) return JSON.parse(saved);
 
     return [
@@ -238,7 +412,7 @@ export default function App() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    localStorage.setItem("PFAICOACH_CHAT", JSON.stringify(coachMessages));
+    localStorage.setItem("TRADEMODEAI_CHAT", JSON.stringify(coachMessages));
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [coachMessages]);
 
@@ -268,19 +442,6 @@ export default function App() {
   };
 
   const handleAddAnalysis = (newAnalysis: Omit<AIAnalysisRecord, "id" | "date">) => {
-    // Consume 1 credit upon completed analysis
-    const newCreditsUsed = profile.creditsUsed + 1;
-    const totalCreds = profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit;
-    const remainingCreds = Math.max(0, totalCreds - newCreditsUsed);
-    const updatedProfile = {
-      ...profile,
-      creditsUsed: newCreditsUsed,
-      credits_remaining: remainingCreds,
-      free_analyses_remaining: remainingCreds,
-    };
-    setProfile(updatedProfile);
-    db.saveProfile(updatedProfile, isDemoMode);
-
     const fresh: AIAnalysisRecord = {
       ...newAnalysis,
       id: "analysis-" + Date.now(),
@@ -444,7 +605,7 @@ export default function App() {
     { label: "Performance Analytics", icon: <Activity className="w-4 h-4" /> },
     { label: "Manage Subscription", icon: <CreditCard className="w-4 h-4" /> },
     { label: "Account Settings", icon: <Settings className="w-4 h-4" /> },
-    { label: "Admin Panel", icon: <ShieldCheck className="w-4 h-4" /> },
+    ...(profile.role === "admin" ? [{ label: "Admin Panel", icon: <ShieldCheck className="w-4 h-4" /> }] : []),
   ];
 
   // Dynamic Route Handler
@@ -523,6 +684,9 @@ export default function App() {
       case "/settings":
         return renderPortalView("Account Settings");
       case "/admin":
+        if (profile.role !== "admin") {
+          return renderPortalView("Dashboard");
+        }
         return renderPortalView("Admin Panel");
 
       default:
@@ -558,7 +722,7 @@ export default function App() {
               </div>
               <div>
                 <span className="font-bold text-sm tracking-tight bg-gradient-to-r from-blue-400 to-sky-200 bg-clip-text text-transparent">
-                  PropFirm Coach
+                  TradeModeAI
                 </span>
                 <span className="block text-[8px] font-mono tracking-widest text-blue-500 uppercase">
                   AI trading pilot
@@ -633,7 +797,7 @@ export default function App() {
                   {profile.subscriptionPlan === 'Free' ? 'Free Trial' : `${profile.subscriptionPlan} Trader`}
                 </span>
                 <span className="block text-[9px] font-mono text-emerald-400 font-black">
-                  {Math.max(0, profile.creditsLimit - profile.creditsUsed)} / {profile.creditsLimit} Left
+                  {(profile.credits_remaining !== undefined) ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed)} / {(profile.total_credits !== undefined) ? profile.total_credits : profile.creditsLimit} Left
                 </span>
               </div>
             </div>
@@ -656,7 +820,7 @@ export default function App() {
               <div className="w-7 h-7 rounded bg-blue-500 flex items-center justify-center shrink-0 animate-pulse">
                 <Brain className="w-4.5 h-4.5 text-slate-950" />
               </div>
-              <span className="font-bold text-xs font-mono text-white truncate">PropFirm Coach</span>
+              <span className="font-bold text-xs font-mono text-white truncate">TradeModeAI</span>
             </div>
 
             {/* Mobile Tab Selectors */}
@@ -713,6 +877,7 @@ export default function App() {
                 isDemoMode={isDemoMode}
                 onToggleDemoMode={() => setIsDemoMode(!isDemoMode)}
                 onUpdateProfile={handleUpdateFullProfile}
+                onLogout={handleLogout}
               />
             )}
 
@@ -793,7 +958,7 @@ export default function App() {
 
           {/* Aesthetic Human footer */}
           <footer className="border-t border-slate-900 py-4 px-8 text-center text-[10px] font-mono text-slate-600">
-            PROPFIRM AI COACH SECTOR LOGS SECURE ENDPOINT | DATA SYNC STATUS: GREEN
+            TRADEMODEAI SECTOR LOGS SECURE ENDPOINT | DATA SYNC STATUS: GREEN
           </footer>
         </main>
 

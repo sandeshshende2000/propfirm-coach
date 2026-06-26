@@ -21,7 +21,7 @@ export default function AccountSettings({ profile, onUpdateProfile }: AccountSet
   };
 
   const copyApiKey = () => {
-    navigator.clipboard.writeText("pfaicoach_live_99djksha8kjs81hj2kja9a721sh");
+    navigator.clipboard.writeText("trademodeai_live_99djksha8kjs81hj2kja9a721sh");
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
   };
@@ -91,15 +91,15 @@ export default function AccountSettings({ profile, onUpdateProfile }: AccountSet
           <div className="bg-slate-900/40 border border-slate-800/85 rounded-2xl p-6 space-y-4">
             <h3 className="font-bold text-sm text-slate-105 flex items-center gap-1.5 border-b border-slate-800 pb-2">
               <Layers className="w-4 h-4 text-emerald-400" />
-              Developer API Access (Prop Webhooks Link)
+              Developer API Access (TradeModeAI Webhooks Link)
             </h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Link PropFirm AI Coach direct signals stream to trading servers, MT5 bridge apps, or personal dashboards to trigger live risk and imbalance alarms.
+              Link TradeModeAI direct signals stream to trading servers, MT5 bridge apps, or personal dashboards to trigger live risk and imbalance alarms.
             </p>
 
             <div className="flex items-center gap-3 bg-slate-950 border border-slate-850 p-3 rounded-lg overflow-x-auto">
               <code className="text-slate-350 text-[10px] font-mono select-all flex-1 break-all">
-                pfaicoach_live_99djksha8kjs81hj2kja9a721sh
+                trademodeai_live_99djksha8kjs81hj2kja9a721sh
               </code>
               <button
                 type="button"

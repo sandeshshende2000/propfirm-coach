@@ -81,7 +81,7 @@ export default function ChallengeTracker({
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
             <Award className="w-6 h-6 text-emerald-400" />
-            Prop Firm Objective Hub
+            TradeModeAI Challenge Hub
           </h1>
           <p className="text-xs text-slate-400 font-mono mt-1">
             FTMO, FUNDINGPIPS, THE5ERS & CUSTOM SPECIFICATION MATRIX
@@ -100,7 +100,7 @@ export default function ChallengeTracker({
       {showAddForm && (
         <form onSubmit={handleSubmit} className="bg-slate-900/60 border border-emerald-500/20 rounded-2xl p-6 space-y-4 animate-fade-in">
           <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono text-emerald-400 border-b border-slate-800 pb-2">
-            Configure Prop Firm Parameters
+            Configure Evaluation Parameters
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -350,7 +350,7 @@ export default function ChallengeTracker({
 
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Prop News-trading Obeyed: No violations</span>
+                <span>News-trading Rules Obeyed: No violations</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -375,7 +375,7 @@ export default function ChallengeTracker({
             No challenge selected
           </h3>
           <p className="text-xs text-slate-400 font-sans max-w-sm leading-relaxed">
-            There are no active propfirm challenges configured. Click "PROVISION NEW CHALLENGE" above to set up your target goals, drawdown thresholds, and start tracking your evaluations in real time.
+            There are no active TradeModeAI evaluation challenges configured. Click "PROVISION NEW CHALLENGE" above to set up your target goals, drawdown thresholds, and start tracking your evaluations in real time.
           </p>
         </div>
       )}
