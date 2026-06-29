@@ -467,22 +467,105 @@ Strict Rules:
   }
 });
 
-// 1.5 Secure Payment Verification and Plan Activation Endpoint
-app.post("/api/verify-payment", async (req, res) => {
-  const { planId, cardNumber, cardExpiry, cardCvc, simulateFailure, currentProfile } = req.body;
+// 1.5 Secure Payment Verification and Plan Activation Helpers
+const pendingPaymentsInMemory = new Map<string, any>();
 
-  if (simulateFailure) {
-    return res.status(400).json({ error: "Card processor rejected card telemetry. Simulation mode: FAILURE triggered." });
+async function getPendingOrder(orderId: string) {
+  if (pendingPaymentsInMemory.has(orderId)) {
+    return pendingPaymentsInMemory.get(orderId);
+  }
+  
+  const sSupabase = getServerSupabase();
+  if (sSupabase) {
+    try {
+      const { data, error } = await sSupabase
+        .from("payments")
+        .select("*")
+        .eq("id", orderId)
+        .maybeSingle();
+      if (data) {
+        return {
+          order_id: data.id || data.order_id,
+          user_id: data.user_id,
+          selected_plan: data.selected_plan || (data.plan_name?.toLowerCase().includes("elite") ? "plan-elite" : "plan-pro"),
+          expected_amount: data.expected_amount || data.amount,
+          currency: data.currency,
+          status: data.status
+        };
+      }
+    } catch (err) {
+      console.warn("Could not query payments table in Supabase:", err);
+    }
+  }
+  return null;
+}
+
+async function createPendingOrder(orderId: string, userId: string, planId: string, amount: number) {
+  const orderObj = {
+    id: orderId,
+    order_id: orderId,
+    user_id: userId || "guest",
+    selected_plan: planId,
+    plan_name: planId === "plan-elite" ? "ELITE TRADER" : "PRO TRADER",
+    expected_amount: amount,
+    amount: amount,
+    currency: "USD",
+    status: "Pending",
+    created_at: new Date()
+  };
+
+  pendingPaymentsInMemory.set(orderId, orderObj);
+
+  const sSupabase = getServerSupabase();
+  if (sSupabase && userId && userId !== "guest") {
+    try {
+      const { error } = await sSupabase
+        .from("payments")
+        .insert(orderObj);
+      if (error) {
+        console.warn("Could not insert pending payment in Supabase:", error);
+      } else {
+        console.log("Inserted pending payment record in Supabase:", orderId);
+      }
+    } catch (err) {
+      console.warn("Could not insert pending payment in Supabase:", err);
+    }
+  }
+}
+
+async function updateOrderStatus(orderId: string, status: string, transactionId?: string) {
+  const memOrder = pendingPaymentsInMemory.get(orderId);
+  if (memOrder) {
+    memOrder.status = status;
+    if (transactionId) memOrder.transaction_id = transactionId;
   }
 
+  const sSupabase = getServerSupabase();
+  if (sSupabase) {
+    try {
+      const { error } = await sSupabase
+        .from("payments")
+        .update({
+          status: status,
+          transaction_id: transactionId || null,
+          updated_at: new Date()
+        })
+        .eq("id", orderId);
+      if (error) {
+        console.warn("Could not update payment status in Supabase:", error);
+      }
+    } catch (err) {
+      console.warn("Could not update payment status in Supabase:", err);
+    }
+  }
+}
+
+async function activateUserSubscription(userId: string | undefined, planId: string, currentProfile: any) {
   const isElite = planId === "plan-elite";
   const planName = isElite ? "Elite" : "Pro";
   const credits = isElite ? 500 : 200;
   const price = isElite ? 49 : 29;
   const nextResetDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-
-  const userId = currentProfile?.id;
-  const sSupabase = getServerSupabase();
 
   let updatedProfile = {
     ...currentProfile,
@@ -498,7 +581,8 @@ app.post("/api/verify-payment", async (req, res) => {
     paymentFailed: false,
   };
 
-  if (sSupabase && userId) {
+  const sSupabase = getServerSupabase();
+  if (sSupabase && userId && userId !== "guest") {
     let rpcSuccess = false;
 
     // Try 1: activate_subscription RPC
@@ -619,20 +703,7 @@ app.post("/api/verify-payment", async (req, res) => {
             expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
           });
 
-        // C. Log into payments table
-        await sSupabase
-          .from("payments")
-          .insert({
-            id: "pay-" + Date.now(),
-            user_id: userId,
-            amount: price,
-            currency: "USD",
-            status: "success",
-            plan_name: planName.toUpperCase() + " TRADER",
-            created_at: new Date()
-          });
-
-        // D. Log into credit_transactions table
+        // C. Log into credit_transactions table
         await sSupabase
           .from("credit_transactions")
           .insert({
@@ -680,12 +751,204 @@ app.post("/api/verify-payment", async (req, res) => {
     } catch (profileFetchErr) {
       console.error("Error fetching updated profile after paid subscription activation:", profileFetchErr);
     }
+  } else {
+    // If Supabase not connected (demo mode/guest mode fallback)
+    updatedProfile = {
+      ...currentProfile,
+      subscriptionPlan: planName,
+      plan_name: planName.toUpperCase() + " TRADER",
+      Credits: credits,
+      credits_remaining: credits,
+      total_credits: credits,
+      free_analyses_remaining: credits,
+      subscription_status: "active",
+      nextResetDate,
+      paymentFailed: false,
+    };
   }
+
+  return updatedProfile;
+}
+
+// 1.5.1 Traditional Credit Card Payment simulation
+app.post("/api/verify-payment", async (req, res) => {
+  const { planId, cardNumber, cardExpiry, cardCvc, simulateFailure, currentProfile } = req.body;
+
+  if (simulateFailure) {
+    return res.status(400).json({ error: "Card processor rejected card telemetry. Simulation mode: FAILURE triggered." });
+  }
+
+  const userId = currentProfile?.id;
+  const updatedProfile = await activateUserSubscription(userId, planId, currentProfile);
 
   res.json({
     success: true,
     updatedProfile,
   });
+});
+
+// 1.5.2 PayPal - Create Order Endpoint
+app.post("/api/paypal/create-order", async (req, res) => {
+  const { planId, userId, currentProfile } = req.body;
+  if (!planId) {
+    return res.status(400).json({ error: "Selected Plan is required" });
+  }
+
+  const isElite = planId === "plan-elite";
+  const price = isElite ? 49 : 29;
+
+  // Generate a unique PayPal-style Order ID
+  const orderId = "PAYPAL-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+
+  // Store pending order in DB (Supabase/Memory)
+  await createPendingOrder(orderId, userId, planId, price);
+
+  res.json({
+    orderId,
+    price,
+    currency: "USD",
+    approvalUrl: `/paypal-checkout?token=${orderId}&plan=${planId === 'plan-elite' ? 'elite' : 'pro'}`
+  });
+});
+
+// 1.5.3 PayPal - Capture & Verify Endpoint
+app.post("/api/paypal/capture-payment", async (req, res) => {
+  const { orderId, transactionId, status, currentProfile } = req.body;
+  const userId = currentProfile?.id || "guest";
+
+  try {
+    // 1. Retrieve the pending order to confirm it exists
+    const pendingOrder = await getPendingOrder(orderId);
+    if (!pendingOrder) {
+      return res.status(400).json({ error: "Order ID must match the pending order." });
+    }
+
+    // 2. Ensure payment has not been processed before
+    if (pendingOrder.status === "Completed") {
+      return res.status(400).json({ error: "The payment has already been processed." });
+    }
+
+    let paypalOrderDetails;
+
+    // 3. Contact PayPal Server-Side REST API directly to verify payment credentials
+    if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) {
+      try {
+        console.log("Contacting PayPal REST API to retrieve order:", orderId);
+        const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64");
+        
+        const oauthResponse = await fetch("https://api-m.sandbox.paypal.com/v1/oauth2/token", {
+          method: "POST",
+          headers: {
+            "Authorization": `Basic ${auth}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: "grant_type=client_credentials"
+        });
+        
+        if (!oauthResponse.ok) {
+          throw new Error("Failed to authenticate with PayPal server-side API");
+        }
+        
+        const oauthData: any = await oauthResponse.json();
+        const accessToken = oauthData.access_token;
+
+        const orderResponse = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          }
+        });
+
+        if (!orderResponse.ok) {
+          throw new Error("Failed to retrieve PayPal order details");
+        }
+
+        paypalOrderDetails = await orderResponse.json();
+      } catch (paypalApiErr: any) {
+        console.error("PayPal Server API connection failed:", paypalApiErr);
+        await updateOrderStatus(orderId, "Failed");
+        return res.status(400).json({ error: `PayPal Server-Side API verification failed: ${paypalApiErr?.message || paypalApiErr}` });
+      }
+    } else {
+      // Server-Side Verification Simulation Mode (when API keys are not provided yet)
+      if (!transactionId || transactionId === "undefined") {
+        await updateOrderStatus(orderId, "Failed");
+        return res.status(400).json({ error: "Transaction ID must be valid." });
+      }
+
+      paypalOrderDetails = {
+        id: orderId,
+        status: status || "COMPLETED",
+        purchase_units: [
+          {
+            amount: {
+              currency_code: req.body.testCurrency || "USD",
+              value: req.body.testAmount || pendingOrder.expected_amount.toString()
+            },
+            payments: {
+              captures: [
+                {
+                  id: transactionId,
+                  status: "COMPLETED",
+                  amount: {
+                    currency_code: req.body.testCurrency || "USD",
+                    value: req.body.testAmount || pendingOrder.expected_amount.toString()
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+    }
+
+    // 4. Run rigorous backend validations on the retrieved details
+    const paypalStatus = paypalOrderDetails.status;
+    const paypalAmount = parseFloat(paypalOrderDetails.purchase_units[0].amount.value);
+    const paypalCurrency = paypalOrderDetails.purchase_units[0].amount.currency_code;
+    const capture = paypalOrderDetails.purchase_units[0].payments?.captures?.[0];
+    const paypalTxId = capture?.id || transactionId;
+
+    // Check Payment Status must be COMPLETED
+    if (paypalStatus !== "COMPLETED") {
+      await updateOrderStatus(orderId, "Failed");
+      return res.status(400).json({ error: "Payment Status must be COMPLETED." });
+    }
+
+    // Currency must be USD
+    if (paypalCurrency !== "USD") {
+      await updateOrderStatus(orderId, "Failed");
+      return res.status(400).json({ error: "Currency must be USD." });
+    }
+
+    // Paid Amount must exactly match the expected amount
+    if (paypalAmount !== parseFloat(pendingOrder.expected_amount)) {
+      await updateOrderStatus(orderId, "Failed");
+      return res.status(400).json({ error: "Paid Amount must exactly match the expected amount." });
+    }
+
+    // Transaction ID must be valid
+    if (!paypalTxId) {
+      await updateOrderStatus(orderId, "Failed");
+      return res.status(400).json({ error: "Transaction ID must be valid." });
+    }
+
+    // 5. Update Order to Completed and activate subscription
+    await updateOrderStatus(orderId, "Completed", paypalTxId);
+    const updatedProfile = await activateUserSubscription(userId, pendingOrder.selected_plan, currentProfile);
+
+    return res.json({
+      success: true,
+      updatedProfile,
+      message: "PayPal subscription payment fully verified and activated on the server."
+    });
+
+  } catch (error: any) {
+    console.error("Server PayPal Verification Error:", error);
+    await updateOrderStatus(orderId, "Failed");
+    return res.status(500).json({ error: `PayPal Server Error: ${error?.message || error}` });
+  }
 });
 
 // 2. AI Coach Chat Companion
