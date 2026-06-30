@@ -36,6 +36,12 @@ const DEFAULT_REAL_USER_SCHEMA: DatabaseSchema = {
     free_analyses_remaining: 3,
     credits_remaining: 3,
     total_credits: 3,
+    plan: "FREE_TRIAL",
+    credits: 3,
+    price: 0,
+    activation_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    expiry_date: "Never",
+    payment_history: []
   },
   challenges: [],
   trades: [],
@@ -274,12 +280,50 @@ class RealTimeDatabase {
     return DEFAULT_REAL_USER_SCHEMA.chats;
   }
 
+  private getUserId(isDemo: boolean): string | undefined {
+    if (isDemo) return undefined;
+    const saved = localStorage.getItem(this.getStorageKey("PROFILE", false));
+    if (saved) {
+      try {
+        const prof = JSON.parse(saved);
+        return prof.id;
+      } catch (e) {}
+    }
+    return undefined;
+  }
+
   // Mutators
   saveProfile(profile: UserProfile, isDemo: boolean = false) {
     localStorage.setItem(this.getStorageKey("PROFILE", isDemo), JSON.stringify(profile));
-    if (isSupabaseConfigured && !isDemo) {
+    if (isSupabaseConfigured && !isDemo && profile.id) {
       // Sync in background to Supabase
-      supabase?.from("profiles").upsert({ ...profile, updated_at: new Date() }).then();
+      const dbProfile = {
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        subscriptionPlan: profile.subscriptionPlan,
+        accountBalance: profile.accountBalance,
+        joinDate: profile.joinDate,
+        creditsUsed: profile.creditsUsed,
+        creditsLimit: profile.creditsLimit,
+        nextResetDate: profile.nextResetDate,
+        paymentFailed: profile.paymentFailed,
+        role: profile.role || "user",
+        plan_name: profile.plan_name,
+        subscription_status: profile.subscription_status,
+        free_analyses_remaining: profile.free_analyses_remaining,
+        credits_remaining: profile.credits_remaining,
+        total_credits: profile.total_credits,
+        status: profile.status,
+        plan: profile.plan || "FREE_TRIAL",
+        credits: profile.credits !== undefined ? profile.credits : 3,
+        price: profile.price !== undefined ? profile.price : 0,
+        activation_date: profile.activation_date || profile.joinDate,
+        expiry_date: profile.expiry_date || profile.nextResetDate,
+        payment_history: profile.payment_history ? JSON.stringify(profile.payment_history) : null,
+        updated_at: new Date()
+      };
+      supabase?.from("profiles").upsert(dbProfile).then();
     }
     this.notify();
   }
@@ -287,7 +331,15 @@ class RealTimeDatabase {
   saveChallenges(challenges: PropChallenge[], isDemo: boolean = false) {
     localStorage.setItem(this.getStorageKey("CHALLENGES", isDemo), JSON.stringify(challenges));
     if (isSupabaseConfigured && !isDemo) {
-      supabase?.from("challenges").upsert(challenges).then();
+      const userId = this.getUserId(false);
+      if (userId) {
+        const dbChallenges = challenges.map(c => ({
+          ...c,
+          user_id: userId,
+          updated_at: new Date()
+        }));
+        supabase?.from("challenges").upsert(dbChallenges).then();
+      }
     }
     this.notify();
   }
@@ -295,7 +347,15 @@ class RealTimeDatabase {
   saveTrades(trades: TradeJournalEntry[], isDemo: boolean = false) {
     localStorage.setItem(this.getStorageKey("TRADES", isDemo), JSON.stringify(trades));
     if (isSupabaseConfigured && !isDemo) {
-      supabase?.from("trades").upsert(trades).then();
+      const userId = this.getUserId(false);
+      if (userId) {
+        const dbTrades = trades.map(t => ({
+          ...t,
+          user_id: userId,
+          updated_at: new Date()
+        }));
+        supabase?.from("trades").upsert(dbTrades).then();
+      }
     }
     this.notify();
   }
@@ -303,7 +363,15 @@ class RealTimeDatabase {
   saveAnalyses(analyses: AIAnalysisRecord[], isDemo: boolean = false) {
     localStorage.setItem(this.getStorageKey("ANALYSES", isDemo), JSON.stringify(analyses));
     if (isSupabaseConfigured && !isDemo) {
-      supabase?.from("analyses").upsert(analyses).then();
+      const userId = this.getUserId(false);
+      if (userId) {
+        const dbAnalyses = analyses.map(a => ({
+          ...a,
+          user_id: userId,
+          updated_at: new Date()
+        }));
+        supabase?.from("analyses").upsert(dbAnalyses).then();
+      }
     }
     this.notify();
   }

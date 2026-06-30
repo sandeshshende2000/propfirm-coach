@@ -108,12 +108,20 @@ export interface UserProfile {
   plan_name?: string;
   total_credits?: number;
   status?: string;
+  activation_date?: string;
+  expiration_date?: string;
+  days_remaining?: string;
+  plan?: 'FREE_TRIAL' | 'PRO' | 'ELITE';
+  credits?: number;
+  price?: number;
+  expiry_date?: string;
   payment_history?: Array<{
     id: string;
     date: string;
     plan: string;
     amount: number;
-    status: 'SUCCESS' | 'FAILED';
+    status: string;
+    transaction_id?: string;
   }>;
 }
 

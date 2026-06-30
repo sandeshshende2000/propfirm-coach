@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft, Search, Star, ChevronDown, Clock } from "lucide-react";
 import { AIAnalysisResult, PropChallenge, AIAnalysisRecord, UserProfile } from "../types";
 import { DEMO_ANALYSIS_CHANNELS } from "../data";
+import { useSubscription } from "../context/SubscriptionContext";
 
 const CATEGORIZED_ASSETS: { [category: string]: { symbol: string; name: string }[] } = {
   "Metals": [
@@ -66,13 +67,13 @@ interface AIAnalysisProps {
 }
 
 export default function AIAnalysis({ 
-  profile, 
   activeChallenge, 
   analyses = [], 
   onAddAnalysis,
   onUpdateProfile,
   onNavigateToTab
 }: AIAnalysisProps) {
+  const { profile, initiatePayPalCheckout } = useSubscription();
   // Config state
   const [pair, setPair] = useState(() => localStorage.getItem("last_selected_pair") || "XAUUSD");
   const [accountSize, setAccountSize] = useState(activeChallenge?.accountSize || 100000);
@@ -283,22 +284,7 @@ export default function AIAnalysis({
   };
 
   const handleUpgradeLocal = (planSelected: 'Pro' | 'Elite') => {
-    const limit = planSelected === 'Pro' ? 200 : 500;
-    if (onUpdateProfile) {
-      onUpdateProfile({
-        ...profile,
-        subscriptionPlan: planSelected,
-        plan_name: planSelected === 'Pro' ? "PRO TRADER" : "ELITE TRADER",
-        creditsUsed: 0,
-        creditsLimit: limit,
-        total_credits: limit,
-        credits_remaining: limit,
-        free_analyses_remaining: 0,
-        nextResetDate: "Jul 22, 2026",
-        paymentFailed: false,
-        subscription_status: "active"
-      });
-    }
+    initiatePayPalCheckout(planSelected === 'Pro' ? 'pro' : 'elite');
     setShowUpgradeModal(false);
   };
 

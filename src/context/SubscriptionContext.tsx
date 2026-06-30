@@ -1,0 +1,351 @@
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { UserProfile } from "../types";
+import { supabase, isSupabaseConfigured, db } from "../supabaseClient";
+
+interface SubscriptionContextType {
+  profile: UserProfile;
+  isLoading: boolean;
+  isVerifying: boolean;
+  isPaypalProcessing: boolean;
+  showPaypalModal: boolean;
+  paypalOrderId: string | null;
+  paypalTxId: string;
+  selectedPlanId: "plan-pro" | "plan-elite" | null;
+  feedbackMsg: { type: "success" | "error"; text: string } | null;
+  sdkReady: boolean;
+  paypalClientId: string;
+  initiatePayPalCheckout: (plan: "pro" | "elite") => Promise<void>;
+  capturePayPalPayment: (options?: {
+    overrideAmount?: string;
+    overrideCurrency?: string;
+    overrideStatus?: string;
+    overrideTxId?: string;
+  }) => Promise<void>;
+  cancelPayPalPayment: () => void;
+  setFeedbackMsg: React.Dispatch<React.SetStateAction<{ type: "success" | "error"; text: string } | null>>;
+  refreshProfile: () => Promise<UserProfile | null>;
+  updateProfileState: (updated: UserProfile) => void;
+  setProfile: React.Dispatch<React.SetStateAction<UserProfile>>;
+  isDemoMode: boolean;
+  setIsDemoMode: (val: boolean) => void;
+  navigate: (path: string) => void;
+}
+
+const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
+
+export function useSubscription() {
+  const context = useContext(SubscriptionContext);
+  if (!context) {
+    throw new Error("useSubscription must be used within a SubscriptionProvider");
+  }
+  return context;
+}
+
+interface SubscriptionProviderProps {
+  children: React.ReactNode;
+  initialProfile: UserProfile;
+  onProfileChange?: (profile: UserProfile) => void;
+  isDemoMode: boolean;
+  setIsDemoMode: (val: boolean) => void;
+  navigate: (path: string) => void;
+}
+
+export function SubscriptionProvider({
+  children,
+  initialProfile,
+  onProfileChange,
+  isDemoMode,
+  setIsDemoMode,
+  navigate
+}: SubscriptionProviderProps) {
+  const [profile, setProfile] = useState<UserProfile>(initialProfile);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isPaypalProcessing, setIsPaypalProcessing] = useState(false);
+  const [showPaypalModal, setShowPaypalModal] = useState(false);
+  const [paypalOrderId, setPaypalOrderId] = useState<string | null>(null);
+  const [paypalTxId, setPaypalTxId] = useState("");
+  const [selectedPlanId, setSelectedPlanId] = useState<"plan-pro" | "plan-elite" | null>(null);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [paypalClientId, setPaypalClientId] = useState("");
+  const [sdkReady, setSdkReady] = useState(false);
+
+  // Sync internal state when initialProfile changes from App.tsx
+  useEffect(() => {
+    setProfile(initialProfile);
+  }, [initialProfile]);
+
+  // Handle local change notification
+  const updateProfileState = (updated: UserProfile) => {
+    setProfile(updated);
+    if (onProfileChange) {
+      onProfileChange(updated);
+    }
+    db.saveProfile(updated, isDemoMode);
+  };
+
+  // Fetch PayPal Config on mount
+  useEffect(() => {
+    fetch("/api/paypal/config")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.clientId) {
+          setPaypalClientId(data.clientId);
+        }
+      })
+      .catch((err) => console.error("Error fetching PayPal config in context:", err));
+  }, []);
+
+  // Dynamically load PayPal JS SDK
+  useEffect(() => {
+    if (!paypalClientId) return;
+
+    const scriptId = "paypal-js-sdk";
+    let script = document.getElementById(scriptId) as HTMLScriptElement;
+
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.src = `https://www.paypal.com/sdk/js?client-id=${paypalClientId}&currency=USD&intent=capture`;
+      script.async = true;
+      script.onload = () => {
+        setSdkReady(true);
+      };
+      script.onerror = () => {
+        console.warn("Could not load PayPal SDK script, continuing in simulator mode.");
+      };
+      document.body.appendChild(script);
+    } else {
+      setSdkReady(true);
+    }
+  }, [paypalClientId]);
+
+  // Generate a mock tx ID when the modal opens
+  useEffect(() => {
+    if (showPaypalModal) {
+      setPaypalTxId("TX-PAY-" + Math.floor(Math.random() * 1000000000));
+    }
+  }, [showPaypalModal]);
+
+  const refreshProfile = async (): Promise<UserProfile | null> => {
+    if (!isSupabaseConfigured || !supabase) return null;
+    try {
+      setIsLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileData) {
+        const loadedPlan = profileData.plan || profileData.Plan || "FREE_TRIAL";
+        const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
+
+        // Load payments history from DB
+        const { data: paymentsData } = await supabase
+          .from("payments")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        let mappedPayments: any[] = [];
+        if (paymentsData) {
+          mappedPayments = paymentsData.map((row: any) => ({
+            id: row.id || row.order_id,
+            date: row.created_at ? new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "N/A",
+            plan: row.plan_name || (row.selected_plan === "plan-elite" ? "ELITE TRADER" : "PRO TRADER"),
+            amount: row.amount || row.expected_amount || 0,
+            status: row.status ? row.status.toUpperCase() : "PENDING",
+            transaction_id: row.transaction_id || row.id || ""
+          }));
+        }
+
+        let parsedHistory = mappedPayments;
+        if (profileData.payment_history) {
+          try {
+            parsedHistory = typeof profileData.payment_history === "string"
+              ? JSON.parse(profileData.payment_history)
+              : profileData.payment_history;
+          } catch (e) {
+            console.error("Error parsing payment history in refreshProfile:", e);
+          }
+        }
+
+        const refreshed: UserProfile = {
+          ...profile,
+          subscriptionPlan: subPlanMapped,
+          creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : 0,
+          creditsLimit: profileData.credits !== undefined ? profileData.credits : (profileData.creditsLimit !== undefined ? profileData.creditsLimit : 3),
+          nextResetDate: profileData.expiry_date || profileData.nextResetDate || "N/A",
+          plan_name: loadedPlan,
+          subscription_status: (loadedPlan === "PRO" || loadedPlan === "ELITE") ? "active" : "inactive",
+          free_analyses_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : 3),
+          credits_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.credits_remaining !== undefined ? profileData.credits_remaining : 3),
+          total_credits: profileData.credits !== undefined ? profileData.credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+          plan: loadedPlan as "FREE_TRIAL" | "PRO" | "ELITE",
+          credits: profileData.credits !== undefined ? profileData.credits : 3,
+          price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
+          activation_date: profileData.activation_date || profileData.joinDate || "",
+          expiry_date: profileData.expiry_date || "Never",
+          payment_history: parsedHistory
+        };
+
+        updateProfileState(refreshed);
+        return refreshed;
+      }
+    } catch (err) {
+      console.error("Error refreshing subscription profile from Supabase:", err);
+    } finally {
+      setIsLoading(false);
+    }
+    return null;
+  };
+
+  // 1. Create PayPal Order
+  const initiatePayPalCheckout = async (plan: "pro" | "elite") => {
+    const targetPlanId = plan === "elite" ? "plan-elite" : "plan-pro";
+    setSelectedPlanId(targetPlanId);
+    setFeedbackMsg(null);
+    setIsPaypalProcessing(true);
+
+    try {
+      const response = await fetch("/api/paypal/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: targetPlanId,
+          userId: profile.id || "guest",
+          currentProfile: profile
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.orderId) {
+        setPaypalOrderId(data.orderId);
+        // 2. Open PayPal Checkout modal overlay directly!
+        setShowPaypalModal(true);
+      } else {
+        setFeedbackMsg({
+          type: "error",
+          text: data.error || "Order creation failed. Please check setup."
+        });
+      }
+    } catch (err) {
+      console.error("PayPal Initiation Error:", err);
+      setFeedbackMsg({
+        type: "error",
+        text: "Failed to connect to PayPal gateway. Check dev settings."
+      });
+    } finally {
+      setIsPaypalProcessing(false);
+    }
+  };
+
+  // 3. Verify Payment + 4. Update Supabase + 5. Redirect to /dashboard
+  const capturePayPalPayment = async (options?: {
+    overrideAmount?: string;
+    overrideCurrency?: string;
+    overrideStatus?: string;
+    overrideTxId?: string;
+  }) => {
+    if (!paypalOrderId || !selectedPlanId) {
+      setFeedbackMsg({ type: "error", text: "No pending order found to capture." });
+      return;
+    }
+
+    setIsVerifying(true);
+    setFeedbackMsg(null);
+
+    const planPrice = selectedPlanId === "plan-elite" ? 49 : 29;
+    const finalAmount = options?.overrideAmount !== undefined ? options.overrideAmount : planPrice.toString();
+    const finalCurrency = options?.overrideCurrency !== undefined ? options.overrideCurrency : "USD";
+    const finalStatus = options?.overrideStatus !== undefined ? options.overrideStatus : "COMPLETED";
+    const finalTxId = options?.overrideTxId !== undefined ? options.overrideTxId : paypalTxId;
+
+    try {
+      // POST to verify payment
+      const response = await fetch("/api/paypal/capture-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: paypalOrderId,
+          transactionId: finalTxId,
+          status: finalStatus,
+          currentProfile: profile,
+          testAmount: finalAmount,
+          testCurrency: finalCurrency
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // Complete full state updates on client from verified profile response
+        updateProfileState(result.updatedProfile);
+        setShowPaypalModal(false);
+        setFeedbackMsg({
+          type: "success",
+          text: "Payment successfully processed! Enjoy your premium tools."
+        });
+        
+        // 5. Direct navigation to dashboard with zero intermediate pricing or landing redirects!
+        navigate("/dashboard");
+      } else {
+        setFeedbackMsg({
+          type: "error",
+          text: result.error || "Payment verification failed. Please try again."
+        });
+      }
+    } catch (err) {
+      console.error("PayPal Capture Error:", err);
+      setFeedbackMsg({
+        type: "error",
+        text: "Verification failed on subscription server."
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const cancelPayPalPayment = () => {
+    setShowPaypalModal(false);
+    setFeedbackMsg({
+      type: "error",
+      text: "Checkout flow cancelled by customer."
+    });
+  };
+
+  return (
+    <SubscriptionContext.Provider
+      value={{
+        profile,
+        isLoading,
+        isVerifying,
+        isPaypalProcessing,
+        showPaypalModal,
+        paypalOrderId,
+        paypalTxId,
+        selectedPlanId,
+        feedbackMsg,
+        sdkReady,
+        paypalClientId,
+        initiatePayPalCheckout,
+        capturePayPalPayment,
+        cancelPayPalPayment,
+        setFeedbackMsg,
+        refreshProfile,
+        updateProfileState,
+        setProfile,
+        isDemoMode,
+        setIsDemoMode,
+        navigate
+      }}
+    >
+      {children}
+    </SubscriptionContext.Provider>
+  );
+}

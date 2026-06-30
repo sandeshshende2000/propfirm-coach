@@ -36,7 +36,8 @@ import PerformanceAnalytics from "./components/PerformanceAnalytics";
 import AccountSettings from "./components/AccountSettings";
 import AdminPanel from "./components/AdminPanel";
 import ManageSubscription from "./components/ManageSubscription";
-import CheckoutPage from "./components/CheckoutPage";
+import { SubscriptionProvider } from "./context/SubscriptionContext";
+import PayPalCheckoutModal from "./components/PayPalCheckoutModal";
 
 // Dynamic routing page components
 import {
@@ -92,7 +93,8 @@ export default function App() {
       "/calculator",
       "/analytics",
       "/settings",
-      "/admin"
+      "/admin",
+      "/subscription"
     ];
     const publicAuthPaths = ["/", "/login", "/signup"];
 
@@ -243,7 +245,7 @@ export default function App() {
 
   // 2. Load and map real-time profile/analyses directly from Supabase tables
   useEffect(() => {
-    if (!isAuthenticated || isDemoMode || !isSupabaseConfigured || !supabase) return;
+    if (!isAuthenticated || !isSupabaseConfigured || !supabase) return;
 
     const loadSupabaseData = async () => {
       try {
@@ -255,30 +257,177 @@ export default function App() {
           .from("profiles")
           .select("*")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
+
+        // Fetch user payment history
+        const { data: paymentsData } = await supabase
+          .from("payments")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false });
+
+        let mappedPayments: any[] = [];
+        if (paymentsData) {
+          mappedPayments = paymentsData.map((row: any) => ({
+            id: row.id || row.order_id,
+            date: row.created_at ? new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "N/A",
+            plan: row.plan_name || (row.selected_plan === "plan-elite" ? "ELITE TRADER" : "PRO TRADER"),
+            amount: row.amount || row.expected_amount || 0,
+            status: row.status ? row.status.toUpperCase() : "PENDING",
+            transaction_id: row.transaction_id || row.id || ""
+          }));
+        }
+
+        let mappedProfile: UserProfile;
+
+        let parsedHistory = mappedPayments;
+        if (profileData && profileData.payment_history) {
+          try {
+            parsedHistory = typeof profileData.payment_history === "string"
+              ? JSON.parse(profileData.payment_history)
+              : profileData.payment_history;
+          } catch (e) {
+            console.error("Error parsing payment_history from Supabase:", e);
+          }
+        }
 
         if (profileData) {
-          const mappedProfile: UserProfile = {
+          const loadedPlan = profileData.plan || profileData.Plan || "FREE_TRIAL";
+          const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
+          mappedProfile = {
             id: user.id,
-            name: profileData.name || profileData.name_display || "Trader",
+            name: profileData.name || profileData.name_display || user.user_metadata?.name || "Trader",
             email: profileData.email || user.email || "",
-            subscriptionPlan: profileData.subscriptionPlan || (profileData.Plan === "FREE_TRIAL" ? "Free" : "Pro"),
+            subscriptionPlan: subPlanMapped,
             accountBalance: profileData.accountBalance || 100000,
-            joinDate: profileData.joinDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-            creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : (profileData.Credits !== undefined ? 3 - profileData.Credits : 0),
-            creditsLimit: profileData.creditsLimit !== undefined ? profileData.creditsLimit : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
-            nextResetDate: profileData.nextResetDate || "N/A",
+            joinDate: profileData.joinDate || new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+            creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : 0,
+            creditsLimit: profileData.credits !== undefined ? profileData.credits : (profileData.creditsLimit !== undefined ? profileData.creditsLimit : 3),
+            nextResetDate: profileData.expiry_date || profileData.nextResetDate || "N/A",
             paymentFailed: !!profileData.paymentFailed,
             role: profileData.role || "user",
-            plan_name: profileData.plan_name || profileData.Plan || "FREE TRIAL",
-            subscription_status: profileData.subscription_status || profileData.Subscription || "inactive",
-            free_analyses_remaining: profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : (profileData.Credits !== undefined ? profileData.Credits : 3),
-            credits_remaining: profileData.credits_remaining !== undefined ? profileData.credits_remaining : (profileData.Credits !== undefined ? profileData.Credits : 3),
-            total_credits: profileData.total_credits !== undefined ? profileData.total_credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+            plan_name: loadedPlan,
+            subscription_status: (loadedPlan === "PRO" || loadedPlan === "ELITE") ? "active" : "inactive",
+            free_analyses_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : 3),
+            credits_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.credits_remaining !== undefined ? profileData.credits_remaining : 3),
+            total_credits: profileData.credits !== undefined ? profileData.credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+            plan: loadedPlan as 'FREE_TRIAL' | 'PRO' | 'ELITE',
+            credits: profileData.credits !== undefined ? profileData.credits : 3,
+            price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
+            activation_date: profileData.activation_date || profileData.joinDate || "",
+            expiry_date: profileData.expiry_date || "Never",
+            payment_history: parsedHistory
           };
-          setProfile(mappedProfile);
-          db.saveProfile(mappedProfile, false);
+        } else {
+          // Profile does not exist yet (newly created account). Insert default profile!
+          const todayDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          mappedProfile = {
+            id: user.id,
+            name: user.user_metadata?.name || "New Trader",
+            email: user.email || "sandeshshende2000@gmail.com",
+            subscriptionPlan: "Free",
+            accountBalance: 0,
+            joinDate: todayDate,
+            creditsUsed: 0,
+            creditsLimit: 3,
+            nextResetDate: "Never",
+            paymentFailed: false,
+            plan_name: "FREE_TRIAL",
+            subscription_status: "inactive",
+            free_analyses_remaining: 3,
+            credits_remaining: 3,
+            total_credits: 3,
+            plan: "FREE_TRIAL",
+            credits: 3,
+            price: 0,
+            activation_date: todayDate,
+            expiry_date: "Never",
+            payment_history: []
+          };
+          // Insert the new profile into Supabase
+          await supabase.from("profiles").insert({
+            id: user.id,
+            name: mappedProfile.name,
+            email: mappedProfile.email,
+            Plan: "FREE_TRIAL",
+            plan_name: "FREE TRIAL",
+            subscriptionPlan: "Free",
+            Credits: 3,
+            credits_remaining: 3,
+            total_credits: 3,
+            free_analyses_remaining: 3,
+            subscription_status: "inactive",
+            nextResetDate: "Never",
+            paymentFailed: false,
+            joinDate: mappedProfile.joinDate,
+            creditsUsed: 0,
+            creditsLimit: 3,
+            plan: "FREE_TRIAL",
+            credits: 3,
+            price: 0,
+            activation_date: mappedProfile.joinDate,
+            expiry_date: "Never",
+            payment_history: JSON.stringify([]),
+            updated_at: new Date()
+          });
         }
+
+        setProfile(mappedProfile);
+        db.saveProfile(mappedProfile, false);
+
+        // Fetch user challenges
+        const { data: challengesData } = await supabase
+          .from("challenges")
+          .select("*")
+          .eq("user_id", user.id);
+
+        let mappedChallenges: PropChallenge[] = [];
+        if (challengesData && challengesData.length > 0) {
+          mappedChallenges = challengesData.map((row: any) => ({
+            id: row.id,
+            name: row.name || "Custom Challenge",
+            firmType: row.firmType || row.firm_type || "Custom",
+            accountSize: row.accountSize || row.account_size || 100000,
+            dailyLossLimitPercent: row.dailyLossLimitPercent || row.daily_loss_limit_percent || 5,
+            maxDrawdownPercent: row.maxDrawdownPercent || row.max_drawdown_percent || 10,
+            targetProfitPercent: row.targetProfitPercent || row.target_profit_percent || 8,
+            currentProfit: row.currentProfit || row.current_profit || 0,
+            currentLossToday: row.currentLossToday || row.current_loss_today || 0,
+            daysTraded: row.daysTraded || row.days_traded || 1,
+            startDate: row.startDate || row.start_date || new Date().toISOString().split("T")[0],
+            status: row.status || "ACTIVE"
+          }));
+        }
+        setChallenges(mappedChallenges);
+        db.saveChallenges(mappedChallenges, false);
+
+        // Fetch user trades
+        const { data: tradesData } = await supabase
+          .from("trades")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("date", { ascending: false });
+
+        let mappedTrades: TradeJournalEntry[] = [];
+        if (tradesData && tradesData.length > 0) {
+          mappedTrades = tradesData.map((row: any) => ({
+            id: row.id,
+            pair: row.pair || row.asset || "UNKNOWN",
+            entryPrice: row.entryPrice || row.entry_price || 0,
+            exitPrice: row.exitPrice || row.exit_price || 0,
+            size: row.size || row.lot_size || 1.0,
+            type: row.type || "BUY",
+            status: row.status || "WIN",
+            profit: row.profit || 0,
+            session: row.session || "",
+            date: row.date || new Date().toISOString().split("T")[0],
+            notes: row.notes || "",
+            emotions: typeof row.emotions === "string" ? JSON.parse(row.emotions) : row.emotions || [],
+            mistakes: typeof row.mistakes === "string" ? JSON.parse(row.mistakes) : row.mistakes || []
+          }));
+        }
+        setTrades(mappedTrades);
+        db.saveTrades(mappedTrades, false);
 
         // Fetch user analysis history
         const { data: historyData } = await supabase
@@ -287,8 +436,9 @@ export default function App() {
           .eq("user_id", user.id)
           .order("dateTime", { ascending: false });
 
+        let mappedAnalyses: AIAnalysisRecord[] = [];
         if (historyData) {
-          const mappedAnalyses: AIAnalysisRecord[] = historyData.map((row: any) => ({
+          mappedAnalyses = historyData.map((row: any) => ({
             id: row.id,
             date: row.dateTime ? row.dateTime.split(" ")[0] : row.date_time || "",
             pair: row.pair || row.asset || row.Asset || "UNKNOWN",
@@ -300,9 +450,10 @@ export default function App() {
             creditsUsed: row.creditsUsed || row.credits_used || 1,
             status: row.status || "Success",
           }));
-          setAnalyses(mappedAnalyses);
-          db.saveAnalyses(mappedAnalyses, false);
         }
+        setAnalyses(mappedAnalyses);
+        db.saveAnalyses(mappedAnalyses, false);
+
       } catch (e) {
         console.error("Error loading Supabase data:", e);
       }
@@ -333,20 +484,34 @@ export default function App() {
       )
       .subscribe();
 
+    const paymentsSubscription = supabase
+      .channel("payments-changes-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payments" },
+        () => {
+          loadSupabaseData();
+        }
+      )
+      .subscribe();
+
     return () => {
       profilesSubscription.unsubscribe();
       historySubscription.unsubscribe();
+      paymentsSubscription.unsubscribe();
     };
-  }, [isAuthenticated, isDemoMode]);
+  }, [isAuthenticated]);
 
   // Sync state with database / mode changes
   useEffect(() => {
     localStorage.setItem("TRADEMODEAI_IS_DEMO", JSON.stringify(isDemoMode));
-    setProfile(db.getProfile(isDemoMode));
-    setChallenges(db.getChallenges(isDemoMode));
-    setTrades(db.getTrades(isDemoMode));
-    setAnalyses(db.getAnalyses(isDemoMode));
-  }, [isDemoMode]);
+    if (!isAuthenticated) {
+      setProfile(db.getProfile(isDemoMode));
+      setChallenges(db.getChallenges(isDemoMode));
+      setTrades(db.getTrades(isDemoMode));
+      setAnalyses(db.getAnalyses(isDemoMode));
+    }
+  }, [isDemoMode, isAuthenticated]);
 
   useEffect(() => {
     const unsubscribe = db.subscribe(() => {
@@ -657,14 +822,6 @@ export default function App() {
         return <SupportPage navigate={navigate} />;
       case "/demo":
         return <DemoPage navigate={navigate} />;
-      case "/checkout":
-        return (
-          <CheckoutPage
-            navigate={navigate}
-            profile={profile}
-            onUpdateProfile={handleUpdateFullProfile}
-          />
-        );
       
       // Portal tab-based views
       case "/dashboard":
@@ -946,6 +1103,7 @@ export default function App() {
                   };
                   navigate(map[targetTab] || "/dashboard");
                 }}
+                navigate={navigate}
               />
             )}
 
@@ -1074,8 +1232,17 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-slate-900 transition-colors">
-      {renderRoute()}
-    </div>
+    <SubscriptionProvider
+      initialProfile={profile}
+      onProfileChange={(updated) => setProfile(updated)}
+      isDemoMode={isDemoMode}
+      setIsDemoMode={setIsDemoMode}
+      navigate={navigate}
+    >
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-slate-900 transition-colors">
+        {renderRoute()}
+        <PayPalCheckoutModal />
+      </div>
+    </SubscriptionProvider>
   );
 }

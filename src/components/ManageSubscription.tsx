@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   CreditCard, 
   Trash2, 
@@ -10,27 +10,56 @@ import {
   DollarSign, 
   Calendar, 
   Activity, 
-  History 
+  History,
+  Lock,
+  Check
 } from "lucide-react";
 import { UserProfile } from "../types";
+import { useSubscription } from "../context/SubscriptionContext";
 
 interface ManageSubscriptionProps {
-  profile: UserProfile;
-  onUpdateProfile: (updated: UserProfile) => void;
+  profile?: UserProfile;
+  onUpdateProfile?: (updated: UserProfile) => void;
   onNavigateToTab?: (tab: string) => void;
+  navigate?: (path: string) => void;
 }
 
 export default function ManageSubscription({
-  profile,
-  onUpdateProfile,
-  onNavigateToTab
+  onNavigateToTab,
+  navigate
 }: ManageSubscriptionProps) {
+  const {
+    profile,
+    isVerifying,
+    isPaypalProcessing,
+    feedbackMsg,
+    setFeedbackMsg,
+    initiatePayPalCheckout,
+    updateProfileState
+  } = useSubscription();
+
   const [loading, setLoading] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [feedbackMsg, setFeedbackMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [dbPlans, setDbPlans] = useState<any[]>([]);
+
+  // Fetch plans on mount
+  useEffect(() => {
+    fetch("/api/plans")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setDbPlans(data);
+        }
+      })
+      .catch(err => console.error("Error loading plans:", err));
+  }, []);
+
+  const handlePaypalInitiate = async (plan: "pro" | "elite") => {
+    await initiatePayPalCheckout(plan);
+  };
 
   const getPlanDetails = () => {
-    const plan = profile.subscriptionPlan;
+    const plan = profile.plan || "FREE_TRIAL";
     if (profile.plan_name === "FREE TRIAL EXPIRED" || profile.status === "Expired") {
       return {
         name: "FREE TRIAL EXPIRED",
@@ -41,7 +70,7 @@ export default function ManageSubscription({
         features: ["No active analyses left", "AI psychologist disabled"]
       };
     }
-    if (plan === "Pro") {
+    if (plan === "PRO") {
       return {
         name: "PRO TRADER",
         cost: 29,
@@ -51,7 +80,7 @@ export default function ManageSubscription({
         features: ["200 AI Analyses / mo", "Priority support", "Trade Journal", "SMC Multi-TF Radar"]
       };
     }
-    if (plan === "Elite") {
+    if (plan === "ELITE") {
       return {
         name: "ELITE TRADER",
         cost: 49,
@@ -72,8 +101,8 @@ export default function ManageSubscription({
   };
 
   const planInfo = getPlanDetails();
-
-  // Cancel / Simulate Expiration of the Subscription
+  
+  // Cancel the Subscription
   const handleCancelSubscription = () => {
     setLoading(true);
     setFeedbackMsg(null);
@@ -81,69 +110,31 @@ export default function ManageSubscription({
     setTimeout(() => {
       const updatedProfile: UserProfile = {
         ...profile,
-        subscriptionPlan: "Free",
+        plan: "FREE_TRIAL",
         plan_name: "FREE TRIAL EXPIRED",
         status: "Expired",
         subscription_status: "expired",
-        creditsUsed: profile.creditsLimit || 3,
-        creditsLimit: 0,
-        total_credits: 0,
+        creditsUsed: 3,
+        creditsLimit: 3,
+        total_credits: 3,
         credits_remaining: 0,
         free_analyses_remaining: 0,
+        expiry_date: "Expired (Renew Required)",
         nextResetDate: "Expired (Renew Required)",
         paymentFailed: false
       };
 
-      onUpdateProfile(updatedProfile);
+      updateProfileState(updatedProfile);
       setLoading(false);
       setShowCancelConfirm(false);
       setFeedbackMsg({
         type: "success",
-        text: "Your subscription has expired. Plan automatically deactivated to FREE TRIAL EXPIRED."
+        text: "Your subscription has been canceled. Plan automatically deactivated."
       });
     }, 800);
   };
 
-  // Simulate resetting back to Pro / Elite or Free Trial for easy credential testing
-  const handleSimulatePaymentRestore = () => {
-    const updatedProfile: UserProfile = {
-      ...profile,
-      subscriptionPlan: "Free",
-      plan_name: "FREE TRIAL",
-      status: "Active",
-      subscription_status: "inactive",
-      creditsUsed: 0,
-      creditsLimit: 3,
-      total_credits: 3,
-      credits_remaining: 3,
-      free_analyses_remaining: 3,
-      nextResetDate: "N/A (3 Free Runs)",
-      paymentFailed: false
-    };
-    onUpdateProfile(updatedProfile);
-    setFeedbackMsg({
-      type: "success",
-      text: "System status restored back to Default Free Trial credentials successfully!"
-    });
-  };
-
-  // Pre-configured list of mock invoices since the system saves history:
-  const paymentHistoryList = profile.payment_history || [
-    {
-      id: "PAY-XM8392",
-      date: "Jun 15, 2026",
-      amount: planInfo.cost,
-      plan: planInfo.name,
-      status: "Success"
-    },
-    {
-      id: "PAY-OL1912",
-      date: "May 15, 2026",
-      amount: planInfo.cost,
-      plan: planInfo.name,
-      status: "Success"
-    }
-  ];
+  const paymentHistoryList = profile.payment_history || [];
 
   return (
     <div id="manage-subscription-view" className="space-y-6">
@@ -157,14 +148,6 @@ export default function ManageSubscription({
             CONTROL ACTIVE CONTRACTS, VERIFY INVOICES, AND STAGE UPGRADES
           </p>
         </div>
-
-        <button
-          onClick={handleSimulatePaymentRestore}
-          className="px-3.5 py-1.5 bg-slate-950 border border-slate-800 hover:border-slate-700 font-mono text-[9px] text-slate-400 hover:text-white rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-        >
-          <RefreshCw className="w-3 h-3" />
-          RESET TO FREE TRIAL
-        </button>
       </div>
 
       {feedbackMsg && (
@@ -246,45 +229,36 @@ export default function ManageSubscription({
             </p>
 
             <div className="flex flex-wrap gap-3">
-              {(profile.subscriptionPlan === "Free" || profile.plan_name === "FREE TRIAL EXPIRED") && (
+              {(profile.plan === "FREE_TRIAL" || !profile.plan || profile.plan_name === "FREE TRIAL EXPIRED") && (
                 <>
                   <button
-                    onClick={() => {
-                      window.history.pushState(null, "", "/pricing");
-                      window.dispatchEvent(new Event("popstate"));
-                    }}
-                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-450 hover:to-teal-350 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer"
+                    onClick={() => initiatePayPalCheckout("pro")}
+                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-450 hover:to-teal-350 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer border-none"
                   >
-                    <span>Upgrade to Pro Trader ($29)</span>
+                    <span>Buy PRO ($29)</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => {
-                      window.history.pushState(null, "", "/pricing");
-                      window.dispatchEvent(new Event("popstate"));
-                    }}
+                    onClick={() => initiatePayPalCheckout("elite")}
                     className="px-5 py-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 cursor-pointer"
                   >
-                    <span>Upgrade to Elite ($49)</span>
+                    <span>Buy ELITE ($49)</span>
                     <ArrowUpRight className="w-4 h-4" />
                   </button>
                 </>
               )}
 
-              {profile.subscriptionPlan === "Pro" && (
+              {profile.plan === "PRO" && (
                 <button
-                  onClick={() => {
-                    window.history.pushState(null, "", "/pricing");
-                    window.dispatchEvent(new Event("popstate"));
-                  }}
-                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-indigo-500 hover:opacity-90 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer"
+                  onClick={() => initiatePayPalCheckout("elite")}
+                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-indigo-500 hover:opacity-90 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer border-none"
                 >
-                  <span>Upgrade to Elite Trader ($49)</span>
+                  <span>Upgrade to ELITE ($49)</span>
                   <ArrowUpRight className="w-4 h-4" />
                 </button>
               )}
 
-              {profile.subscriptionPlan === "Elite" && (
+              {profile.plan === "ELITE" && (
                 <div className="text-xs font-mono font-bold text-emerald-400 bg-emerald-550/10 border border-emerald-555/20 rounded-xl p-3 max-w-md">
                    You are currently registered under our highest tier (ELITE TRADER). Standard credit limits partition concurrently. No further upgrades are required.
                 </div>
@@ -362,18 +336,18 @@ export default function ManageSubscription({
             <table className="w-full text-xs font-mono text-left">
               <thead>
                 <tr className="text-slate-500 text-[10px] border-b border-slate-850">
-                  <th className="py-2.5 px-2">INVOICE ID</th>
-                  <th className="py-2.5 px-2">DATE COMPLETED</th>
-                  <th className="py-2.5 px-2">PLAN TIER</th>
-                  <th className="py-2.5 px-2">AMOUNT BILLED</th>
-                  <th className="py-2.5 px-2">TELEMETRY CODE</th>
+                  <th className="py-2.5 px-2">Invoice ID</th>
+                  <th className="py-2.5 px-2">Plan</th>
+                  <th className="py-2.5 px-2">Amount</th>
+                  <th className="py-2.5 px-2">Status</th>
+                  <th className="py-2.5 px-2">Payment Date</th>
+                  <th className="py-2.5 px-2">Transaction ID</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900/60 text-slate-300">
                 {paymentHistoryList.map((invoice: any, idx: number) => (
                   <tr key={idx} className="hover:bg-slate-900/20">
                     <td className="py-3 px-2 font-black text-white">{invoice.id}</td>
-                    <td className="py-3 px-2">{invoice.date}</td>
                     <td className="py-3 px-2 uppercase font-bold text-blue-450">{invoice.plan}</td>
                     <td className="py-3 px-2 font-black text-emerald-400">${invoice.amount}.00</td>
                     <td className="py-3 px-2">
@@ -381,14 +355,16 @@ export default function ManageSubscription({
                         {invoice.status.toUpperCase()}
                       </span>
                     </td>
+                    <td className="py-3 px-2">{invoice.date}</td>
+                    <td className="py-3 px-2 text-slate-400 font-mono text-xs">{invoice.transaction_id || invoice.id}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <div className="text-center py-6 text-slate-500 font-mono text-xs">
-            No valid payment occurrences logged under free tier.
+          <div className="text-center py-8 text-slate-500 font-mono text-xs">
+            {profile.plan === "FREE_TRIAL" ? "No payment history available yet." : "No payment history available."}
           </div>
         )}
       </div>

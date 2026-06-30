@@ -17,6 +17,7 @@ import {
   LogOut
 } from "lucide-react";
 import { PropChallenge, TradeJournalEntry, UserProfile, AIAnalysisRecord } from "../types";
+import { useSubscription } from "../context/SubscriptionContext";
 
 interface DashboardOverviewProps {
   profile: UserProfile;
@@ -33,7 +34,6 @@ interface DashboardOverviewProps {
 }
 
 export default function DashboardOverview({
-  profile,
   challenges,
   trades,
   analyses = [],
@@ -45,7 +45,21 @@ export default function DashboardOverview({
   onUpdateProfile,
   onLogout,
 }: DashboardOverviewProps) {
+  const { profile, initiatePayPalCheckout } = useSubscription();
   const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0] || null;
+
+  const [dbPlans, setDbPlans] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("/api/plans")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setDbPlans(data);
+        }
+      })
+      .catch(err => console.error("Error loading plans:", err));
+  }, []);
 
   // Real-time calculated statistics based strictly on active user journal:
   const totalTrades = trades.length;
@@ -80,6 +94,32 @@ export default function DashboardOverview({
   const disciplineScore = totalTrades > 0 
     ? Math.min(100, Math.max(0, Math.round(70 + (winRate * 0.3) - (trades.filter(t => t.emotions.includes("FOMO")).length * 5))))
     : 0;
+
+  // Subscription Metadata calculation
+  const activationDate = profile.activation_date || (profile.plan === "FREE_TRIAL" ? profile.joinDate : new Date(new Date(profile.expiry_date || profile.nextResetDate || Date.now()).getTime() - 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }));
+  const expirationDate = profile.plan === "FREE_TRIAL" ? "Never" : (profile.expiry_date || profile.nextResetDate || "N/A");
+  
+  const getDaysRemainingValue = () => {
+    if (profile.plan === "FREE_TRIAL") {
+      return "Unlimited";
+    }
+    const expStr = profile.nextResetDate;
+    if (!expStr || expStr === "N/A" || expStr.includes("N/A") || expStr.includes("3 Free Runs")) return "N/A";
+    try {
+      const expDate = new Date(expStr);
+      if (isNaN(expDate.getTime())) return "N/A";
+      const diffTime = expDate.getTime() - Date.now();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays > 0 ? `${diffDays} Days` : "Expired";
+    } catch (e) {
+      return "N/A";
+    }
+  };
+  const daysRemaining = getDaysRemainingValue();
+
+  const totalCredits = profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit;
+  const usedCredits = profile.creditsUsed;
+  const remainingCredits = profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, totalCredits - usedCredits);
 
   return (
     <div className="space-y-6">
@@ -116,11 +156,11 @@ export default function DashboardOverview({
           <p className="text-xs text-slate-400 font-mono mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>MEMBER: <span className="text-blue-450 font-bold">{profile.name}</span></span>
             <span className="text-slate-800">|</span>
-            <span>PLAN: <span className="text-sky-450 font-bold uppercase">{profile.subscriptionPlan === 'Free' ? 'FREE TRIAL' : (profile.plan_name ? profile.plan_name.toUpperCase() : `${profile.subscriptionPlan.toUpperCase()} TRADER`)}</span></span>
+            <span>PLAN: <span className="text-sky-450 font-bold uppercase">{profile.plan === 'FREE_TRIAL' ? 'FREE TRIAL' : (profile.plan || 'FREE TRIAL')}</span></span>
             <span className="text-slate-800">|</span>
             <span>Credits Remaining: <span className="text-emerald-450 font-bold">{(profile.total_credits !== undefined && profile.credits_remaining !== undefined) ? `${profile.credits_remaining} / ${profile.total_credits}` : `${Math.max(0, profile.creditsLimit - profile.creditsUsed)} / ${profile.creditsLimit}`}</span></span>
             <span className="text-slate-800">|</span>
-            <span>Subscription Status: <span className={`font-bold uppercase ${profile.subscriptionPlan === 'Free' ? 'text-rose-400' : 'text-emerald-450'}`}>{profile.subscriptionPlan === 'Free' ? 'Inactive' : 'Active'}</span></span>
+            <span>Subscription Status: <span className={`font-bold uppercase ${profile.plan === 'FREE_TRIAL' ? 'text-rose-450' : 'text-emerald-450'}`}>{profile.plan === 'FREE_TRIAL' ? 'Inactive' : 'Active'}</span></span>
           </p>
         </div>
 
@@ -180,36 +220,73 @@ export default function DashboardOverview({
           <div className="absolute top-0 right-0 p-3 opacity-15 pointer-events-none">
             <Sparkles className="w-8 h-8 text-blue-400" />
           </div>
-          <div className="space-y-2 text-xs font-mono">
+          <div className="space-y-1.5 text-[11px] font-mono">
             <div>
               <span className="text-[10px] text-slate-400 uppercase block tracking-wider font-bold">Current Plan</span>
-              <span className="text-sm font-black text-blue-450 uppercase tracking-tight block mt-0.5">
-                {profile.subscriptionPlan === 'Free' ? 'FREE TRIAL' : (profile.plan_name ? profile.plan_name.toUpperCase() : `${profile.subscriptionPlan.toUpperCase()} TRADER`)}
+              <span className="text-xs font-black text-blue-450 uppercase tracking-tight block mt-0.5">
+                {profile.plan === 'FREE_TRIAL' ? 'FREE TRIAL' : (profile.plan || 'FREE TRIAL')}
               </span>
             </div>
+
             <div className="flex justify-between border-t border-slate-900 pt-1.5">
+              <span className="text-slate-400">Subscription Status:</span>
+              <span className={`font-black uppercase ${profile.plan === 'FREE_TRIAL' ? 'text-rose-450' : 'text-emerald-400'}`}>
+                {profile.plan === 'FREE_TRIAL' ? 'Inactive' : 'Active'}
+              </span>
+            </div>
+
+            <div className="flex justify-between">
               <span className="text-slate-400">Credits Remaining:</span>
               <span className="font-bold text-white">
-                {profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed)}
+                {remainingCredits}
               </span>
             </div>
+
+            <div className="flex justify-between">
+              <span className="text-slate-400">Total Credits:</span>
+              <span className="font-bold text-slate-350">
+                {totalCredits}
+              </span>
+            </div>
+
             <div className="flex justify-between">
               <span className="text-slate-400">Credits Used:</span>
-              <span className="font-bold text-slate-300">
-                {profile.creditsUsed}
+              <span className="font-bold text-slate-350">
+                {usedCredits}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Total Monthly Credits:</span>
-              <span className="font-bold text-slate-300">
-                {profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit}
-              </span>
-            </div>
+
             <div className="flex justify-between border-t border-slate-900 pt-1.5">
-              <span className="text-slate-400">Next Credit Reset:</span>
-              <span className="font-black text-sky-400">
-                {profile.nextResetDate || "N/A (3 Free Runs)"}
+              <span className="text-slate-400">Activation Date:</span>
+              <span className="font-bold text-slate-300">
+                {activationDate}
               </span>
+            </div>
+
+            <div className="flex justify-between">
+              <span className="text-slate-400">Expiration Date:</span>
+              <span className="font-bold text-slate-300">
+                {expirationDate}
+              </span>
+            </div>
+
+            <div className="flex justify-between">
+              <span className="text-slate-400">Days Remaining:</span>
+              <span className={`font-black ${daysRemaining === 'Expired' ? 'text-rose-450' : 'text-sky-400'}`}>
+                {daysRemaining}
+              </span>
+            </div>
+
+            {/* Credit Counter Block */}
+            <div className="pt-2 border-t border-slate-900 mt-1.5 space-y-1">
+              <span className="text-[9px] text-slate-500 uppercase tracking-wider block font-bold">Credit Counter</span>
+              <div className="text-[11px] font-black text-emerald-450">
+                {remainingCredits} / {totalCredits} Remaining
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-500">
+                <span>Used: {usedCredits}</span>
+                <span>Remaining: {remainingCredits}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -319,15 +396,13 @@ export default function DashboardOverview({
             <div className="text-right">
               <span className="text-[9px] font-mono text-slate-500 uppercase block">CURRENT PLAN</span>
               <span className={`inline-block font-mono font-black text-xs uppercase px-2.5 py-0.5 rounded border ${
-                profile.plan_name === "FREE TRIAL EXPIRED" || profile.status === "Expired"
-                  ? "bg-rose-500/10 border-rose-500/20 text-rose-400"
-                  : profile.subscriptionPlan === "Pro"
-                  ? "bg-blue-500/10 border-blue-500/20 text-blue-400"
-                  : profile.subscriptionPlan === "Elite"
+                profile.plan === "ELITE"
                   ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+                  : profile.plan === "PRO"
+                  ? "bg-blue-500/10 border-blue-500/20 text-blue-400"
                   : "bg-teal-500/10 border-teal-500/20 text-teal-400"
               }`}>
-                {profile.plan_name || (profile.subscriptionPlan === 'Free' ? 'FREE TRIAL' : `${profile.subscriptionPlan.toUpperCase()} TRADER`)}
+                {profile.plan === "FREE_TRIAL" ? "FREE TRIAL" : (profile.plan || "FREE TRIAL")}
               </span>
             </div>
           </div>
@@ -336,14 +411,16 @@ export default function DashboardOverview({
             {/* Left Box: Credits remaining and date details */}
             <div className="space-y-3.5">
               <div>
-                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-bold">Credits Remaining</span>
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-bold">Credit Counter</span>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-3xl font-black text-white font-mono">
-                    {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed))}
+                    {remainingCredits} / {totalCredits} Remaining
                   </span>
-                  <span className="text-xs text-slate-500 font-mono">
-                    / {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit)} Active Credits
-                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5 text-[11px] text-slate-450 font-mono mt-1 text-left">
+                  <span>Used: <strong className="text-slate-300 font-bold">{usedCredits}</strong></span>
+                  <span>Remaining: <strong className="text-emerald-400 font-bold">{remainingCredits}</strong></span>
+                  <span>Total: <strong className="text-slate-300 font-bold">{totalCredits}</strong></span>
                 </div>
               </div>
 
@@ -353,19 +430,19 @@ export default function DashboardOverview({
                   className={`h-full transition-all duration-550 rounded-full ${
                     profile.plan_name === "FREE TRIAL EXPIRED" 
                       ? "bg-rose-500 w-0" 
-                      : (profile.credits_remaining !== undefined ? profile.credits_remaining : (profile.creditsLimit - profile.creditsUsed)) <= 1 ? "bg-rose-500" : "bg-emerald-500"
+                      : remainingCredits <= 15 ? "bg-rose-500" : "bg-emerald-500"
                   }`}
                   style={{ 
-                    width: `${profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (((profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed)) / (profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit)) * 100)}%` 
+                    width: `${profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : ((remainingCredits / totalCredits) * 100)}%` 
                   }}
                 />
               </div>
 
               {/* Renewal date info for premium tiers */}
-              {profile.subscriptionPlan !== "Free" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+              {profile.plan !== "FREE_TRIAL" && (
                 <div className="bg-slate-950/60 border border-slate-850 rounded-xl p-3 flex justify-between items-center">
                   <span className="text-[10px] font-mono text-slate-400 uppercase block">RENEWAL DATE:</span>
-                  <span className="text-xs font-mono font-black text-sky-450">{profile.nextResetDate}</span>
+                  <span className="text-xs font-mono font-black text-sky-450">{profile.expiry_date || profile.nextResetDate}</span>
                 </div>
               )}
             </div>
@@ -375,58 +452,49 @@ export default function DashboardOverview({
               <span className="text-slate-400 uppercase font-black tracking-widest text-[9px] block">AVAILABLE PLANS & UPGRADES</span>
               
               {/* If FREE TRIAL or FREE TRIAL EXPIRED */}
-              {(profile.subscriptionPlan === "Free" || profile.plan_name === "FREE TRIAL EXPIRED") && (
+              {(profile.plan === "FREE_TRIAL" || !profile.plan) && (
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-extrabold text-white block">PRO TRADER</span>
+                      <span className="font-extrabold text-white block">PRO</span>
                       <span className="text-[9px] text-slate-300">200 Credits &bull; $29/mo</span>
                     </div>
                     <button
-                      onClick={() => {
-                        window.history.pushState(null, "", "/checkout?plan=pro");
-                        window.dispatchEvent(new Event("popstate"));
-                      }}
+                      onClick={() => initiatePayPalCheckout("pro")}
                       className="px-3 py-1.5 bg-blue-500 hover:bg-blue-450 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95 shadow-md shadow-blue-500/10"
                     >
-                      Upgrade To Pro
+                      Buy PRO
                     </button>
                   </div>
                   
                   <div className="flex items-center justify-between border-t border-slate-900/80 pt-2">
                     <div>
-                      <span className="font-extrabold text-white block">ELITE TRADER</span>
+                      <span className="font-extrabold text-white block">ELITE</span>
                       <span className="text-[9px] text-slate-350">500 Credits &bull; $49/mo</span>
                     </div>
                     <button
-                      onClick={() => {
-                        window.history.pushState(null, "", "/checkout?plan=elite");
-                        window.dispatchEvent(new Event("popstate"));
-                      }}
+                      onClick={() => initiatePayPalCheckout("elite")}
                       className="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:opacity-90 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95"
                     >
-                      Upgrade To Elite
+                      Buy ELITE
                     </button>
                   </div>
                 </div>
               )}
 
               {/* If PRO TRADER */}
-              {profile.subscriptionPlan === "Pro" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+              {profile.plan === "PRO" && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-extrabold text-white block uppercase">ELITE TRADER</span>
+                      <span className="font-extrabold text-white block uppercase">ELITE</span>
                       <span className="text-[9px] text-slate-350">500 Premium Credits &bull; $49/mo</span>
                     </div>
                     <button
-                      onClick={() => {
-                        window.history.pushState(null, "", "/checkout?plan=elite");
-                        window.dispatchEvent(new Event("popstate"));
-                      }}
+                      onClick={() => initiatePayPalCheckout("elite")}
                       className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-indigo-500 text-slate-950 font-black text-[10px] uppercase rounded-lg cursor-pointer transition-all active:scale-95 shadow-md shadow-emerald-550/10"
                     >
-                      Upgrade To Elite
+                      Upgrade To ELITE
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-450 leading-relaxed font-sans italic">
@@ -436,7 +504,7 @@ export default function DashboardOverview({
               )}
 
               {/* If ELITE TRADER */}
-              {profile.subscriptionPlan === "Elite" && profile.plan_name !== "FREE TRIAL EXPIRED" && (
+              {profile.plan === "ELITE" && (
                 <div className="flex flex-col h-full justify-center py-2 text-center text-emerald-450 uppercase font-black text-[10px] tracking-wide">
                   <span>&bull; Peak Elite Quota Active &bull;</span>
                   <span className="text-slate-500 font-mono text-[9px] leading-relaxed pt-1 normal-case font-normal leading-normal select-none">

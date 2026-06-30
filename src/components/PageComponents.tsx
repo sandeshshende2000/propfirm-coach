@@ -196,6 +196,7 @@ export function PageCTA({ navigate }: { navigate: (path: string) => void }) {
 
 // Global Persistent Navigation Toolbar requested
 export function BackHomeBar({ navigate }: { navigate: (path: string) => void }) {
+  const isAuth = typeof window !== "undefined" && localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
   return (
     <div className="bg-slate-950/90 border-b border-slate-900/80 sticky top-0 z-50 py-2.5 px-4 backdrop-blur-md">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -209,10 +210,10 @@ export function BackHomeBar({ navigate }: { navigate: (path: string) => void }) 
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate("/")}
+            onClick={() => navigate(isAuth ? "/dashboard" : "/")}
             className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-820 border border-slate-800 rounded-lg text-[10px] font-mono text-slate-300 flex items-center gap-1.5 transition-all cursor-pointer"
           >
-            Humble Home Page
+            {isAuth ? "Enter Portal" : "Humble Home Page"}
           </button>
           <button
             onClick={() => navigate("/dashboard")}
@@ -329,8 +330,7 @@ export function PricingPage({
     if (!isAuthenticated) {
       navigate("/signup");
     } else {
-      const planCode = plan.id === "plan-pro" || plan.id === "Pro" ? "pro" : "elite";
-      navigate(`/checkout?plan=${planCode}`);
+      navigate("/subscription");
     }
   };
 

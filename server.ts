@@ -560,8 +560,8 @@ async function updateOrderStatus(orderId: string, status: string, transactionId?
   }
 }
 
-async function activateUserSubscription(userId: string | undefined, planId: string, currentProfile: any) {
-  const isElite = planId === "plan-elite";
+async function activateUserSubscription(userId: string | undefined, planId: string, currentProfile: any, isCard: boolean = false) {
+  const isElite = planId === "plan-elite" || planId.toLowerCase().includes("elite");
   const planName = isElite ? "Elite" : "Pro";
   const credits = isElite ? 500 : 200;
   const price = isElite ? 49 : 29;
@@ -583,6 +583,29 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
 
   const sSupabase = getServerSupabase();
   if (sSupabase && userId && userId !== "guest") {
+    if (isCard) {
+      try {
+        const ordId = "CC-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+        const txId = "TXN-CC-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+        await sSupabase.from("payments").insert({
+          id: ordId,
+          order_id: ordId,
+          user_id: userId,
+          selected_plan: planId,
+          plan_name: isElite ? "ELITE TRADER" : "PRO TRADER",
+          expected_amount: price,
+          amount: price,
+          currency: "USD",
+          status: "Completed",
+          transaction_id: txId,
+          created_at: new Date()
+        });
+        console.log("Logged successful card payment into Supabase payments table:", ordId);
+      } catch (ccPaymentErr) {
+        console.warn("Could not log card payment into payments table:", ccPaymentErr);
+      }
+    }
+
     let rpcSuccess = false;
 
     // Try 1: activate_subscription RPC
@@ -720,6 +743,47 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
       }
     }
 
+    // Always update/write the new specific columns requested to guarantee single source of truth in profiles table:
+    try {
+      let existingHistory: any[] = [];
+      const { data: curProf } = await sSupabase
+        .from("profiles")
+        .select("payment_history")
+        .eq("id", userId)
+        .single();
+      if (curProf && curProf.payment_history) {
+        existingHistory = typeof curProf.payment_history === "string"
+          ? JSON.parse(curProf.payment_history)
+          : curProf.payment_history;
+      }
+
+      const txId = "TXN-PAY-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+      const newPayment = {
+        id: "pay-" + Date.now(),
+        date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        plan: isElite ? "ELITE" : "PRO",
+        amount: price,
+        status: "COMPLETED",
+        transaction_id: txId
+      };
+      const updatedHistory = [...existingHistory, newPayment];
+
+      await sSupabase
+        .from("profiles")
+        .update({
+          plan: isElite ? "ELITE" : "PRO",
+          credits: credits,
+          price: price,
+          activation_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          expiry_date: nextResetDate,
+          payment_history: JSON.stringify(updatedHistory)
+        })
+        .eq("id", userId);
+
+    } catch (profCustomErr) {
+      console.warn("Could not write custom columns on profiles table:", profCustomErr);
+    }
+
     // Query and sync updated profile back to frontend
     try {
       const { data: finalDbProfile } = await sSupabase
@@ -729,23 +793,38 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
         .single();
 
       if (finalDbProfile) {
+        let parsedHistory = [];
+        if (finalDbProfile.payment_history) {
+          try {
+            parsedHistory = typeof finalDbProfile.payment_history === "string"
+              ? JSON.parse(finalDbProfile.payment_history)
+              : finalDbProfile.payment_history;
+          } catch (e) {}
+        }
+
         updatedProfile = {
           ...currentProfile,
           id: finalDbProfile.id,
           name: finalDbProfile.name || finalDbProfile.name_display || currentProfile.name,
           email: finalDbProfile.email || currentProfile.email,
-          subscriptionPlan: finalDbProfile.subscriptionPlan || (finalDbProfile.Plan === "FREE_TRIAL" ? "Free" : finalDbProfile.Plan === "PRO" ? "Pro" : finalDbProfile.Plan === "ELITE" ? "Elite" : "Pro"),
+          subscriptionPlan: finalDbProfile.plan === "PRO" ? "Pro" : (finalDbProfile.plan === "ELITE" ? "Elite" : "Free"),
           accountBalance: finalDbProfile.accountBalance || 100000,
           joinDate: finalDbProfile.joinDate || currentProfile.joinDate,
-          creditsUsed: finalDbProfile.creditsUsed !== undefined ? finalDbProfile.creditsUsed : (finalDbProfile.credits_used !== undefined ? finalDbProfile.credits_used : 0),
-          creditsLimit: finalDbProfile.creditsLimit !== undefined ? finalDbProfile.creditsLimit : (finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : credits),
-          nextResetDate: finalDbProfile.nextResetDate || nextResetDate,
+          creditsUsed: finalDbProfile.creditsUsed !== undefined ? finalDbProfile.creditsUsed : 0,
+          creditsLimit: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.creditsLimit !== undefined ? finalDbProfile.creditsLimit : 3),
+          nextResetDate: finalDbProfile.expiry_date || finalDbProfile.nextResetDate || nextResetDate,
           paymentFailed: !!finalDbProfile.paymentFailed,
-          plan_name: finalDbProfile.plan_name || finalDbProfile.Plan || (planName.toUpperCase() + " TRADER"),
-          subscription_status: finalDbProfile.subscription_status || finalDbProfile.Subscription || "active",
-          free_analyses_remaining: finalDbProfile.free_analyses_remaining !== undefined ? finalDbProfile.free_analyses_remaining : (finalDbProfile.Credits !== undefined ? finalDbProfile.Credits : credits),
-          credits_remaining: finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : (finalDbProfile.Credits !== undefined ? finalDbProfile.Credits : credits),
-          total_credits: finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : (finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : credits),
+          plan_name: finalDbProfile.plan || (planName.toUpperCase() + " TRADER"),
+          subscription_status: (finalDbProfile.plan === "PRO" || finalDbProfile.plan === "ELITE") ? "active" : "inactive",
+          free_analyses_remaining: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.free_analyses_remaining !== undefined ? finalDbProfile.free_analyses_remaining : credits),
+          credits_remaining: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : credits),
+          total_credits: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : credits),
+          plan: finalDbProfile.plan,
+          credits: finalDbProfile.credits,
+          price: finalDbProfile.price,
+          activation_date: finalDbProfile.activation_date,
+          expiry_date: finalDbProfile.expiry_date,
+          payment_history: parsedHistory
         };
       }
     } catch (profileFetchErr) {
@@ -779,11 +858,26 @@ app.post("/api/verify-payment", async (req, res) => {
   }
 
   const userId = currentProfile?.id;
-  const updatedProfile = await activateUserSubscription(userId, planId, currentProfile);
+  const updatedProfile = await activateUserSubscription(userId, planId, currentProfile, true);
 
   res.json({
     success: true,
     updatedProfile,
+  });
+});
+
+app.get("/api/plans", (req, res) => {
+  res.json([
+    { id: "FREE_TRIAL", name: "FREE TRIAL", price: 0, credits: 3 },
+    { id: "PRO", name: "PRO", price: 29, credits: 200 },
+    { id: "ELITE", name: "ELITE", price: 49, credits: 500 }
+  ]);
+});
+
+// 1.5.1.5 PayPal - Client ID Config Endpoint
+app.get("/api/paypal/config", (req, res) => {
+  res.json({
+    clientId: process.env.PAYPAL_CLIENT_ID || ""
   });
 });
 
@@ -797,8 +891,66 @@ app.post("/api/paypal/create-order", async (req, res) => {
   const isElite = planId === "plan-elite";
   const price = isElite ? 49 : 29;
 
-  // Generate a unique PayPal-style Order ID
-  const orderId = "PAYPAL-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  // Generate a fallback unique PayPal-style Order ID
+  let orderId = "PAYPAL-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  let approvalUrl = `/paypal-checkout?token=${orderId}&plan=${planId === 'plan-elite' ? 'elite' : 'pro'}`;
+
+  if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) {
+    try {
+      console.log("Contacting PayPal REST API to create real order for plan:", planId);
+      const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString("base64");
+      
+      const oauthResponse = await fetch("https://api-m.sandbox.paypal.com/v1/oauth2/token", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: "grant_type=client_credentials"
+      });
+      
+      if (!oauthResponse.ok) {
+        throw new Error("Failed to authenticate with PayPal server-side API");
+      }
+      
+      const oauthData: any = await oauthResponse.json();
+      const accessToken = oauthData.access_token;
+
+      const orderResponse = await fetch("https://api-m.sandbox.paypal.com/v2/checkout/orders", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          intent: "CAPTURE",
+          purchase_units: [
+            {
+              amount: {
+                currency_code: "USD",
+                value: price.toFixed(2)
+              },
+              description: isElite ? "ELITE TRADER" : "PRO TRADER"
+            }
+          ]
+        })
+      });
+
+      if (!orderResponse.ok) {
+        const errText = await orderResponse.text();
+        throw new Error(`Failed to create PayPal order: ${errText}`);
+      }
+
+      const paypalOrder = await orderResponse.json();
+      orderId = paypalOrder.id;
+      const approveLink = paypalOrder.links.find((l: any) => l.rel === "approve" || l.rel === "payer-action");
+      approvalUrl = approveLink ? approveLink.href : approvalUrl;
+
+      console.log("Successfully created real PayPal Order:", orderId);
+    } catch (err: any) {
+      console.error("Failed to create real PayPal Order, falling back to simulated:", err);
+    }
+  }
 
   // Store pending order in DB (Supabase/Memory)
   await createPendingOrder(orderId, userId, planId, price);
@@ -807,7 +959,7 @@ app.post("/api/paypal/create-order", async (req, res) => {
     orderId,
     price,
     currency: "USD",
-    approvalUrl: `/paypal-checkout?token=${orderId}&plan=${planId === 'plan-elite' ? 'elite' : 'pro'}`
+    approvalUrl
   });
 });
 
@@ -852,7 +1004,7 @@ app.post("/api/paypal/capture-payment", async (req, res) => {
         const oauthData: any = await oauthResponse.json();
         const accessToken = oauthData.access_token;
 
-        const orderResponse = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`, {
+        let orderResponse = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`, {
           method: "GET",
           headers: {
             "Authorization": `Bearer ${accessToken}`,
@@ -864,7 +1016,39 @@ app.post("/api/paypal/capture-payment", async (req, res) => {
           throw new Error("Failed to retrieve PayPal order details");
         }
 
-        paypalOrderDetails = await orderResponse.json();
+        let orderData = await orderResponse.json();
+
+        // If order status is APPROVED, capture it now!
+        if (orderData.status === "APPROVED") {
+          console.log("Order is APPROVED on PayPal. Issuing server-side capture now:", orderId);
+          const captureResponse = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}/capture`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${accessToken}`,
+              "Content-Type": "application/json"
+            }
+          });
+
+          if (captureResponse.ok) {
+            orderData = await captureResponse.json();
+            console.log("Successfully captured approved PayPal order:", orderId);
+          } else {
+            const errText = await captureResponse.text();
+            console.warn("Capture request failed, trying GET again in case already captured:", errText);
+            orderResponse = await fetch(`https://api-m.sandbox.paypal.com/v2/checkout/orders/${orderId}`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/json"
+              }
+            });
+            if (orderResponse.ok) {
+              orderData = await orderResponse.json();
+            }
+          }
+        }
+
+        paypalOrderDetails = orderData;
       } catch (paypalApiErr: any) {
         console.error("PayPal Server API connection failed:", paypalApiErr);
         await updateOrderStatus(orderId, "Failed");
