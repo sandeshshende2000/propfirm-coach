@@ -174,19 +174,47 @@ export function SubscriptionProvider({
           }
         }
 
+        // Let's parse remaining credits correctly from Supabase
+        const remainingCredits = profileData.credits_remaining !== undefined 
+          ? profileData.credits_remaining 
+          : (profileData.Credits !== undefined 
+              ? profileData.Credits 
+              : (profileData.free_analyses_remaining !== undefined 
+                  ? profileData.free_analyses_remaining 
+                  : 3));
+
+        const usedCredits = profileData.creditsUsed !== undefined 
+          ? profileData.creditsUsed 
+          : (profileData.credits_used !== undefined 
+              ? profileData.credits_used 
+              : 0);
+
+        const limitCredits = profileData.total_credits !== undefined 
+          ? profileData.total_credits 
+          : (profileData.creditsLimit !== undefined 
+              ? profileData.creditsLimit 
+              : (profileData.credits !== undefined 
+                  ? profileData.credits 
+                  : 3));
+
+        let currentPlanName = profileData.plan_name || profileData.Plan_Name || "FREE TRIAL";
+        if (loadedPlan === "FREE_TRIAL" && remainingCredits === 0) {
+          currentPlanName = "FREE TRIAL EXPIRED";
+        }
+
         const refreshed: UserProfile = {
           ...profile,
           subscriptionPlan: subPlanMapped,
-          creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : 0,
-          creditsLimit: profileData.credits !== undefined ? profileData.credits : (profileData.creditsLimit !== undefined ? profileData.creditsLimit : 3),
+          creditsUsed: usedCredits,
+          creditsLimit: limitCredits,
           nextResetDate: profileData.expiry_date || profileData.nextResetDate || "N/A",
-          plan_name: loadedPlan,
-          subscription_status: (loadedPlan === "PRO" || loadedPlan === "ELITE") ? "active" : "inactive",
-          free_analyses_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : 3),
-          credits_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.credits_remaining !== undefined ? profileData.credits_remaining : 3),
-          total_credits: profileData.credits !== undefined ? profileData.credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+          plan_name: currentPlanName,
+          subscription_status: profileData.subscription_status || ((loadedPlan === "PRO" || loadedPlan === "ELITE" || loadedPlan === "FREE_TRIAL") ? "active" : "inactive"),
+          free_analyses_remaining: remainingCredits,
+          credits_remaining: remainingCredits,
+          total_credits: limitCredits,
           plan: loadedPlan as "FREE_TRIAL" | "PRO" | "ELITE",
-          credits: profileData.credits !== undefined ? profileData.credits : 3,
+          credits: remainingCredits,
           price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
           activation_date: profileData.activation_date || profileData.joinDate || "",
           expiry_date: profileData.expiry_date || "Never",

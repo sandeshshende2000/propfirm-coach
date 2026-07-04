@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { 
   CreditCard, 
-  Trash2, 
   RefreshCw, 
   CheckCircle, 
   AlertTriangle, 
   ArrowUpRight, 
-  ShieldAlert, 
-  DollarSign, 
-  Calendar, 
-  Activity, 
   History,
-  Lock,
-  Check
+  Calendar,
+  Activity,
+  Check,
+  Sparkles,
+  Zap
 } from "lucide-react";
 import { UserProfile } from "../types";
 import { useSubscription } from "../context/SubscriptionContext";
@@ -35,11 +33,9 @@ export default function ManageSubscription({
     feedbackMsg,
     setFeedbackMsg,
     initiatePayPalCheckout,
-    updateProfileState
+    selectedPlanId
   } = useSubscription();
 
-  const [loading, setLoading] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [dbPlans, setDbPlans] = useState<any[]>([]);
 
   // Fetch plans on mount
@@ -58,98 +54,27 @@ export default function ManageSubscription({
     await initiatePayPalCheckout(plan);
   };
 
-  const getPlanDetails = () => {
-    const plan = profile.plan || "FREE_TRIAL";
-    if (profile.plan_name === "FREE TRIAL EXPIRED" || profile.status === "Expired") {
-      return {
-        name: "FREE TRIAL EXPIRED",
-        cost: 0,
-        limit: 0,
-        status: "Expired",
-        colorClass: "text-rose-400 border-rose-500/20 bg-rose-500/5",
-        features: ["No active analyses left", "AI psychologist disabled"]
-      };
-    }
-    if (plan === "PRO") {
-      return {
-        name: "PRO TRADER",
-        cost: 29,
-        limit: 200,
-        status: "Active",
-        colorClass: "text-blue-400 border-blue-500/25 bg-blue-500/5",
-        features: ["200 AI Analyses / mo", "Priority support", "Trade Journal", "SMC Multi-TF Radar"]
-      };
-    }
-    if (plan === "ELITE") {
-      return {
-        name: "ELITE TRADER",
-        cost: 49,
-        limit: 500,
-        status: "Active",
-        colorClass: "text-indigo-400 border-indigo-500/25 bg-indigo-500/5",
-        features: ["500 AI Analyses / mo", "Everything in Pro", "Ultra-Priority Processing", "Advanced SMC Neural Engine"]
-      };
-    }
-    return {
-      name: "FREE TRIAL",
-      cost: 0,
-      limit: 3,
-      status: "Active",
-      colorClass: "text-teal-400 border-teal-500/25 bg-teal-500/5",
-      features: ["3 Free analyses credits", "Standard Trade psychology desk"]
-    };
-  };
-
-  const planInfo = getPlanDetails();
-  
-  // Cancel the Subscription
-  const handleCancelSubscription = () => {
-    setLoading(true);
-    setFeedbackMsg(null);
-
-    setTimeout(() => {
-      const updatedProfile: UserProfile = {
-        ...profile,
-        plan: "FREE_TRIAL",
-        plan_name: "FREE TRIAL EXPIRED",
-        status: "Expired",
-        subscription_status: "expired",
-        creditsUsed: 3,
-        creditsLimit: 3,
-        total_credits: 3,
-        credits_remaining: 0,
-        free_analyses_remaining: 0,
-        expiry_date: "Expired (Renew Required)",
-        nextResetDate: "Expired (Renew Required)",
-        paymentFailed: false
-      };
-
-      updateProfileState(updatedProfile);
-      setLoading(false);
-      setShowCancelConfirm(false);
-      setFeedbackMsg({
-        type: "success",
-        text: "Your subscription has been canceled. Plan automatically deactivated."
-      });
-    }, 800);
-  };
-
-  const paymentHistoryList = profile.payment_history || [];
+  const paymentHistoryList = profile?.payment_history || [];
 
   return (
-    <div id="manage-subscription-view" className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/30 border border-slate-850 p-5 rounded-2xl">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2 font-mono">
-            <CreditCard className="w-6 h-6 text-blue-500" />
-            MANAGE SUBSCRIPTION
+    <div id="manage-subscription-view" className="space-y-8 animate-in fade-in duration-300">
+      
+      {/* Header Banner */}
+      <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900/30 border border-slate-800 p-6 rounded-2xl overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 text-left">
+          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5 font-mono">
+            <CreditCard className="w-7 h-7 text-emerald-450 animate-pulse" />
+            SUBSCRIPTION PORTAL
           </h1>
-          <p className="text-xs text-slate-400 font-mono mt-1">
-            CONTROL ACTIVE CONTRACTS, VERIFY INVOICES, AND STAGE UPGRADES
+          <p className="text-xs text-slate-400 font-mono mt-1 uppercase tracking-wider">
+            Monitor credits, view payment history, and upgrade to premium nodes
           </p>
         </div>
       </div>
 
+      {/* Feedback Messages */}
       {feedbackMsg && (
         <div className={`p-4 rounded-xl border font-mono text-xs text-left ${
           feedbackMsg.type === "success" 
@@ -163,162 +88,247 @@ export default function ManageSubscription({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Tier Details Card */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 space-y-6 lg:col-span-1 text-left">
-          <div className="space-y-1">
-            <span className="text-[9px] font-mono font-bold uppercase text-slate-500 tracking-wider">CURRENT SUBSCRIPTION</span>
-            <div className={`border rounded-lg px-2.5 py-1 w-fit text-xs font-mono font-black tracking-wide ${planInfo.colorClass}`}>
-              {planInfo.name}
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        {/* Left Side: Subscription Details Panel (Current Plan, Status, Credits, Dates) */}
+        <div className="lg:col-span-5 bg-slate-900/30 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-indigo-500" />
+          
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 pb-4 border-b border-slate-850">
+              <Activity className="w-5 h-5 text-emerald-400" />
+              <h3 className="font-extrabold text-white text-base tracking-tight font-mono">CURRENT LICENSE</h3>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Current Plan */}
+              <div className="bg-slate-950/40 border border-slate-850/60 rounded-xl p-3 text-left">
+                <span className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Current Plan</span>
+                <span className="text-sm font-black text-white tracking-tight font-mono block uppercase">
+                  {profile?.plan_name || "FREE TRIAL"}
+                </span>
+              </div>
+
+              {/* Plan Status */}
+              <div className="bg-slate-950/40 border border-slate-850/60 rounded-xl p-3 text-left">
+                <span className="block text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1">Plan Status</span>
+                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase border ${
+                  profile?.subscription_status === "active" || profile?.plan_name === "FREE_TRIAL" || (profile?.plan_name === "FREE TRIAL" && (profile?.credits_remaining || 0) > 0)
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                    : "bg-rose-500/10 border-rose-500/20 text-rose-450"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    profile?.subscription_status === "active" || profile?.plan_name === "FREE_TRIAL" || (profile?.plan_name === "FREE TRIAL" && (profile?.credits_remaining || 0) > 0)
+                      ? "bg-emerald-400 animate-pulse" 
+                      : "bg-rose-400"
+                  }`} />
+                  {profile?.subscription_status === "active" || profile?.plan_name === "FREE_TRIAL" || (profile?.plan_name === "FREE TRIAL" && (profile?.credits_remaining || 0) > 0) ? "Active" : "Expired"}
+                </span>
+              </div>
+            </div>
+
+            {/* Credits Section */}
+            <div className="bg-slate-950/40 border border-slate-850/60 rounded-xl p-4 text-left space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider font-bold">Credits Analytics</span>
+                <span className="text-[10px] font-mono text-slate-450 uppercase">TradeModeAI Scanner</span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="border-r border-slate-850">
+                  <span className="block text-[9px] font-mono text-slate-500 uppercase">Remaining</span>
+                  <span className="text-xl font-black text-emerald-450 font-mono block mt-1">
+                    {profile?.credits_remaining !== undefined ? profile.credits_remaining : 3}
+                  </span>
+                </div>
+                <div className="border-r border-slate-850">
+                  <span className="block text-[9px] font-mono text-slate-500 uppercase">Used</span>
+                  <span className="text-xl font-black text-rose-400 font-mono block mt-1">
+                    {profile?.creditsUsed !== undefined ? profile.creditsUsed : 0}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-[9px] font-mono text-slate-500 uppercase">Total Limit</span>
+                  <span className="text-xl font-black text-slate-300 font-mono block mt-1">
+                    {profile?.total_credits !== undefined ? profile.total_credits : (profile?.creditsLimit !== undefined ? profile.creditsLimit : 3)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-1.5 pt-1">
+                <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-850">
+                  <div 
+                    className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-500"
+                    style={{ 
+                      width: `${Math.min(100, Math.max(0, ((profile?.credits_remaining !== undefined ? profile.credits_remaining : 3) / (profile?.total_credits || 3)) * 100))}%` 
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-[9px] font-mono text-slate-500">
+                  <span>0 Credits</span>
+                  <span>{profile?.total_credits || 3} Limit</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dates Section */}
+            <div className="space-y-3 bg-slate-950/40 border border-slate-850/60 rounded-xl p-4 text-left">
+              <div className="flex justify-between items-center text-xs font-mono border-b border-slate-900 pb-2.5">
+                <span className="text-slate-450 uppercase text-[10px]">Activation Date</span>
+                <span className="text-slate-200 font-bold font-mono">
+                  {profile?.activation_date || profile?.joinDate || "N/A"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-mono">
+                <span className="text-slate-450 uppercase text-[10px]">Expiration Date</span>
+                <span className="text-amber-400 font-bold font-mono">
+                  {profile?.expiry_date || "Never (One-time Access)"}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="border-b border-slate-850 pb-4">
-              <span className="block text-[10px] font-mono text-slate-400 uppercase">MONTHLY COST</span>
-              <span className="text-3xl font-black text-white font-mono">${planInfo.cost}</span>
-              <span className="text-slate-500 text-xs font-mono"> / Month</span>
-            </div>
-
-            <div className="border-b border-slate-850 pb-4">
-              <span className="block text-[10px] font-mono text-slate-400 uppercase">CREDITS ALLOCATED</span>
-              <span className="text-3xl font-black text-white font-mono">
-                {profile.plan_name === "FREE TRIAL EXPIRED" ? 0 : (profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit)}
-              </span>
-              <span className="text-slate-500 text-xs font-mono"> Analyses</span>
-            </div>
-
-            <div className="pb-2">
-              <span className="block text-[10px] font-mono text-slate-400 uppercase flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" /> RENEWAL DATE
-              </span>
-              <span className="text-sm font-bold text-sky-400 font-mono">
-                {profile.nextResetDate}
-              </span>
-            </div>
-          </div>
-
-          {/* Features list */}
-          <div className="space-y-2 border-t border-slate-850 pt-4">
-            <span className="block text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black">Plan Inclusion</span>
-            <ul className="space-y-1.5 text-xs font-mono text-slate-350">
-              {planInfo.features.map((feature, i) => (
-                <li key={i} className="flex items-center gap-2">
-                  <CheckCircle className={`w-3.5 h-3.5 ${planInfo.status === "Expired" ? "text-rose-450" : "text-emerald-400"}`} />
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="mt-6 pt-4 border-t border-slate-850/50 text-[10px] font-mono text-slate-500 text-left leading-relaxed">
+            * Note: TradeModeAI plans grant durable lifetime or credit-based one-time blocks. There are no recurring billings or cancellation penalties.
           </div>
         </div>
 
-        {/* Subscription Control & Payment Options */}
-        <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 space-y-6 lg:col-span-2 text-left">
-          <div className="flex items-center justify-between border-b border-slate-850 pb-4">
+        {/* Right Side: Premium Upgrade Options */}
+        <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
+          <div className="bg-slate-900/30 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden flex-1 flex flex-col justify-between">
             <div>
-              <h3 className="font-extrabold text-white text-md">SUBSCRIPTION MANAGEMENT PANELS</h3>
-              <p className="text-[10px] font-mono text-slate-500 uppercase font-bold">Cancel, upgrade, or alter active licenses</p>
-            </div>
-          </div>
+              <div className="flex items-center gap-2 pb-4 border-b border-slate-850 mb-6 text-left">
+                <Sparkles className="w-5 h-5 text-amber-400" />
+                <h3 className="font-extrabold text-white text-base tracking-tight font-mono uppercase">PREMIUM UPGRADE OPTIONS</h3>
+              </div>
 
-          {/* Upgrades panel section */}
-          <div className="space-y-4">
-            <h4 className="text-xs font-mono font-bold uppercase text-slate-400">Upgrade / Renew Your Plan</h4>
-            <p className="text-xs text-slate-350 max-w-lg leading-relaxed font-sans">
-              Need more radar scope? Upgrading your subscription plan refills your analyzer credits immediately and unlocks priority vision transformer pipelines.
-            </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* PRO TRADER CARD */}
+                <div className="bg-slate-950/40 border border-slate-850/65 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden shadow-xl hover:border-emerald-500/20 transition-all duration-300">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl pointer-events-none" />
+                  
+                  <div className="space-y-4 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono text-emerald-400 font-extrabold tracking-widest bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded uppercase">
+                        PRO TIER
+                      </span>
+                      <Zap className="w-4 h-4 text-emerald-400" />
+                    </div>
 
-            <div className="flex flex-wrap gap-3">
-              {(profile.plan === "FREE_TRIAL" || !profile.plan || profile.plan_name === "FREE TRIAL EXPIRED") && (
-                <>
-                  <button
-                    onClick={() => initiatePayPalCheckout("pro")}
-                    className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-450 hover:to-teal-350 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer border-none"
-                  >
-                    <span>Buy PRO ($29)</span>
-                    <ArrowUpRight className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => initiatePayPalCheckout("elite")}
-                    className="px-5 py-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 font-bold font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>Buy ELITE ($49)</span>
-                    <ArrowUpRight className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-
-              {profile.plan === "PRO" && (
-                <button
-                  onClick={() => initiatePayPalCheckout("elite")}
-                  className="px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-indigo-500 hover:opacity-90 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all flex items-center gap-1 shadow-lg cursor-pointer border-none"
-                >
-                  <span>Upgrade to ELITE ($49)</span>
-                  <ArrowUpRight className="w-4 h-4" />
-                </button>
-              )}
-
-              {profile.plan === "ELITE" && (
-                <div className="text-xs font-mono font-bold text-emerald-400 bg-emerald-550/10 border border-emerald-555/20 rounded-xl p-3 max-w-md">
-                   You are currently registered under our highest tier (ELITE TRADER). Standard credit limits partition concurrently. No further upgrades are required.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Cancellation block section */}
-          {profile.plan_name !== "FREE TRIAL EXPIRED" && profile.status !== "Expired" && (
-            <div className="border-t border-slate-850 pt-6 space-y-4">
-              <h4 className="text-xs font-mono font-bold uppercase text-slate-400">Cancel Plan Subscription</h4>
-              <p className="text-xs text-slate-400 leading-relaxed max-w-lg font-sans">
-                Canceling your subscription takes effect immediately for testing. The plan status changes to <b>FREE TRIAL EXPIRED</b>, and AI analysis blocks engage instantly as requested in strict rule tests.
-              </p>
-
-              {showCancelConfirm ? (
-                <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 space-y-3.5 max-w-md">
-                  <div className="flex gap-2 text-rose-400">
-                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-mono text-xs font-bold block">CONFIRM DEACTIVATION</span>
-                      <p className="text-[10px] font-mono leading-relaxed mt-0.5">
-                        This action behaves in accordance with monthly expiration rules. Once confirmed, your standard credits are depleted to 0, which halts trade scans instantly.
-                      </p>
+                      <span className="text-3xl font-black text-white font-mono">$29</span>
+                      <span className="text-slate-400 font-mono text-xs"> / flat</span>
+                      <p className="text-[10px] font-mono text-slate-500 uppercase font-black mt-1">ONE-TIME DEPOSIT</p>
+                    </div>
+
+                    <div className="border-t border-slate-900/80 pt-3">
+                      <span className="block text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black mb-2">FEATURES INCLUDED</span>
+                      <ul className="space-y-2 text-xs font-mono text-slate-350">
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>200 AI Scan Credits</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Standard SMC Multi-TF Radar</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Interactive Trade Journal</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          <span>Priority support desk</span>
+                        </li>
+                      </ul>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="mt-6 pt-4 border-t border-slate-900">
                     <button
-                      onClick={handleCancelSubscription}
-                      disabled={loading}
-                      className="px-4 py-2 bg-rose-500 hover:bg-rose-650 text-slate-950 font-black font-mono text-[10px] uppercase rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                      onClick={() => handlePaypalInitiate("pro")}
+                      disabled={isVerifying || isPaypalProcessing}
+                      className="w-full h-12 px-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 disabled:opacity-50 text-slate-950 font-black font-mono text-xs uppercase rounded-xl transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] active:scale-98 disabled:pointer-events-none cursor-pointer border-none shadow-emerald-500/20 hover:shadow-emerald-500/35"
                     >
-                      {loading ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      {(isPaypalProcessing || isVerifying) && selectedPlanId === "plan-pro" ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <>
+                          <span>Buy PRO ($29)</span>
+                          <ArrowUpRight className="w-4 h-4" />
+                        </>
                       )}
-                      <span>Yes, Cancel Active Contract</span>
-                    </button>
-                    <button
-                      onClick={() => setShowCancelConfirm(false)}
-                      className="px-3.5 py-2 bg-slate-950 border border-slate-800 text-slate-300 font-bold font-mono text-[10px] uppercase rounded-lg cursor-pointer"
-                    >
-                      Keep Plan Alive
                     </button>
                   </div>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setShowCancelConfirm(true)}
-                  className="px-4 py-2 bg-slate-950 border border-rose-500/30 text-rose-400 hover:bg-rose-500/5 font-mono text-[10px] font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Cancel Subscription Contract</span>
-                </button>
-              )}
+
+                {/* ELITE TRADER CARD */}
+                <div className="bg-slate-950/40 border border-slate-850/65 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden shadow-xl hover:border-purple-500/20 transition-all duration-300">
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-xl pointer-events-none" />
+                  
+                  <div className="space-y-4 text-left">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-mono text-purple-400 font-extrabold tracking-widest bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded uppercase">
+                        ELITE TIER
+                      </span>
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                    </div>
+
+                    <div>
+                      <span className="text-3xl font-black text-white font-mono">$49</span>
+                      <span className="text-slate-400 font-mono text-xs"> / flat</span>
+                      <p className="text-[10px] font-mono text-slate-500 uppercase font-black mt-1">ONE-TIME DEPOSIT</p>
+                    </div>
+
+                    <div className="border-t border-slate-900/80 pt-3">
+                      <span className="block text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black mb-2">FEATURES INCLUDED</span>
+                      <ul className="space-y-2 text-xs font-mono text-slate-350">
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <span>500 AI Scan Credits</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <span>Everything in PRO plan</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <span>Advanced SMC Neural Engine</span>
+                        </li>
+                        <li className="flex items-start gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <span>Ultra-Priority Processing</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-slate-900">
+                    <button
+                      onClick={() => handlePaypalInitiate("elite")}
+                      disabled={isVerifying || isPaypalProcessing}
+                      className="w-full h-12 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 text-white font-black font-mono text-xs uppercase rounded-xl transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] active:scale-98 disabled:pointer-events-none cursor-pointer border-none shadow-purple-500/20 hover:shadow-purple-500/35"
+                    >
+                      {(isPaypalProcessing || isVerifying) && selectedPlanId === "plan-elite" ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <span>Buy ELITE ($49)</span>
+                          <ArrowUpRight className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+              </div>
             </div>
-          )}
+          </div>
         </div>
+
       </div>
 
       {/* Invoice & Payment History Log Section */}
@@ -364,7 +374,7 @@ export default function ManageSubscription({
           </div>
         ) : (
           <div className="text-center py-8 text-slate-500 font-mono text-xs">
-            {profile.plan === "FREE_TRIAL" ? "No payment history available yet." : "No payment history available."}
+            {profile?.plan === "FREE_TRIAL" ? "No payment history available yet." : "No payment history available."}
           </div>
         )}
       </div>

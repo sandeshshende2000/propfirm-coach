@@ -48,29 +48,65 @@ async function handleSupabaseDeductionAndHistory(
   if (sSupabase && userId) {
     let rpcSuccess = false;
 
-    // Try 1: p_ prefixed arguments to complete_analysis RPC function
+    // Try 1: Exact database schema arguments for the complete_analysis function
     try {
-      console.log("Attempting RPC complete_analysis with p_ prefixed arguments...");
+      console.log("Attempting RPC complete_analysis with exact schema arguments...");
+      
+      // Parse confidence safely to a numeric value as expected by p_confidence parameter
+      let confidenceNum = 85; // default fallback
+      const rawConf = resultData.confidenceScore || resultData.riskAnalysis?.confidencePercentage || "85";
+      if (typeof rawConf === "number") {
+        confidenceNum = rawConf;
+      } else if (typeof rawConf === "string") {
+        const parsed = parseFloat(rawConf.replace(/%/g, ""));
+        if (!isNaN(parsed)) {
+          confidenceNum = parsed;
+        }
+      }
+
       const { data, error } = await sSupabase.rpc("complete_analysis", {
         p_user_id: userId,
-        p_pair: pair,
         p_asset: pair,
-        p_account_size: accountSize,
-        p_risk_percent: riskPercent,
-        p_session: session,
-        p_result: JSON.stringify(resultData)
+        p_confidence: confidenceNum,
+        p_market_bias: resultData.marketBias || "Neutral",
+        p_ai_result: JSON.stringify(resultData)
       });
+
       if (!error) {
-        console.log("RPC complete_analysis with p_ prefixed arguments succeeded!");
+        console.log("RPC complete_analysis with exact schema arguments succeeded!");
         rpcSuccess = true;
       } else {
-        console.warn("RPC complete_analysis with p_ prefixed arguments failed:", error);
+        console.warn("RPC complete_analysis with exact schema arguments failed:", error);
       }
     } catch (err) {
-      console.warn("Error calling RPC with p_ prefixed arguments:", err);
+      console.warn("Error calling RPC with exact schema arguments:", err);
     }
 
-    // Try 2: snake_case arguments to complete_analysis RPC function
+    // Try 2: p_ prefixed arguments to complete_analysis RPC function
+    if (!rpcSuccess) {
+      try {
+        console.log("Attempting RPC complete_analysis with p_ prefixed arguments...");
+        const { data, error } = await sSupabase.rpc("complete_analysis", {
+          p_user_id: userId,
+          p_pair: pair,
+          p_asset: pair,
+          p_account_size: accountSize,
+          p_risk_percent: riskPercent,
+          p_session: session,
+          p_result: JSON.stringify(resultData)
+        });
+        if (!error) {
+          console.log("RPC complete_analysis with p_ prefixed arguments succeeded!");
+          rpcSuccess = true;
+        } else {
+          console.warn("RPC complete_analysis with p_ prefixed arguments failed:", error);
+        }
+      } catch (err) {
+        console.warn("Error calling RPC with p_ prefixed arguments:", err);
+      }
+    }
+
+    // Try 3: snake_case arguments to complete_analysis RPC function
     if (!rpcSuccess) {
       try {
         console.log("Attempting RPC complete_analysis with snake_case arguments...");
@@ -94,7 +130,7 @@ async function handleSupabaseDeductionAndHistory(
       }
     }
 
-    // Try 3: basic arguments (user_id, pair) to complete_analysis RPC function
+    // Try 4: basic arguments (user_id, pair) to complete_analysis RPC function
     if (!rpcSuccess) {
       try {
         console.log("Attempting RPC complete_analysis with basic arguments...");

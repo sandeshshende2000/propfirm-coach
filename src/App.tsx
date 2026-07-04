@@ -113,41 +113,44 @@ export default function App() {
     setIsAuthenticated(true);
     localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
 
-    const currentProfile = db.getProfile(isDemoMode);
-    const updated = {
-      ...currentProfile,
-      name: name || currentProfile.name,
-      email: email || currentProfile.email,
-    };
-    setProfile(updated);
-    db.saveProfile(updated, isDemoMode);
+    if (isDemoMode) {
+      const currentProfile = db.getProfile(true);
+      const updated = {
+        ...currentProfile,
+        name: name || currentProfile.name,
+        email: email || currentProfile.email,
+      };
+      setProfile(updated);
+      db.saveProfile(updated, true);
+    }
 
     navigate("/dashboard");
   };
 
   const handleSignupSuccess = (name: string, email: string, plan: string) => {
-    const updatedProfile: UserProfile = {
-      name: name,
-      email: email,
-      subscriptionPlan: "Free",
-      accountBalance: 100000,
-      joinDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      creditsUsed: 0,
-      creditsLimit: 3,
-      nextResetDate: "N/A (3 Free Runs)",
-      paymentFailed: false,
-      free_analyses_remaining: 3,
-      subscription_status: "inactive",
-      credits_remaining: 3,
-      plan_name: "FREE TRIAL",
-      total_credits: 3,
-    };
-
-    setProfile(updatedProfile);
-    db.saveProfile(updatedProfile, isDemoMode);
-
     setIsAuthenticated(true);
     localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
+
+    if (isDemoMode) {
+      const updatedProfile: UserProfile = {
+        name: name,
+        email: email,
+        subscriptionPlan: "Free",
+        accountBalance: 100000,
+        joinDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        creditsUsed: 0,
+        creditsLimit: 3,
+        nextResetDate: "N/A (3 Free Runs)",
+        paymentFailed: false,
+        free_analyses_remaining: 3,
+        subscription_status: "inactive",
+        credits_remaining: 3,
+        plan_name: "FREE TRIAL",
+        total_credits: 3,
+      };
+      setProfile(updatedProfile);
+      db.saveProfile(updatedProfile, true);
+    }
 
     navigate("/dashboard");
   };
@@ -158,6 +161,14 @@ export default function App() {
     }
     setIsAuthenticated(false);
     localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+    
+    // Clear all real user cached data on logout to prevent state leaks or overwrites
+    localStorage.removeItem("TRADEMODEAI_PROFILE_real");
+    localStorage.removeItem("TRADEMODEAI_CHALLENGES_real");
+    localStorage.removeItem("TRADEMODEAI_TRADES_real");
+    localStorage.removeItem("TRADEMODEAI_ANALYSES_real");
+    localStorage.removeItem("TRADEMODEAI_CHATS_real");
+    
     navigate("/");
   };
 
@@ -294,6 +305,35 @@ export default function App() {
         if (profileData) {
           const loadedPlan = profileData.plan || profileData.Plan || "FREE_TRIAL";
           const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
+
+          // Let's parse remaining credits correctly from Supabase
+          const remainingCredits = profileData.credits_remaining !== undefined 
+            ? profileData.credits_remaining 
+            : (profileData.Credits !== undefined 
+                ? profileData.Credits 
+                : (profileData.free_analyses_remaining !== undefined 
+                    ? profileData.free_analyses_remaining 
+                    : 3));
+
+          const usedCredits = profileData.creditsUsed !== undefined 
+            ? profileData.creditsUsed 
+            : (profileData.credits_used !== undefined 
+                ? profileData.credits_used 
+                : 0);
+
+          const limitCredits = profileData.total_credits !== undefined 
+            ? profileData.total_credits 
+            : (profileData.creditsLimit !== undefined 
+                ? profileData.creditsLimit 
+                : (profileData.credits !== undefined 
+                    ? profileData.credits 
+                    : 3));
+
+          let currentPlanName = profileData.plan_name || profileData.Plan_Name || "FREE TRIAL";
+          if (loadedPlan === "FREE_TRIAL" && remainingCredits === 0) {
+            currentPlanName = "FREE TRIAL EXPIRED";
+          }
+
           mappedProfile = {
             id: user.id,
             name: profileData.name || profileData.name_display || user.user_metadata?.name || "Trader",
@@ -301,25 +341,25 @@ export default function App() {
             subscriptionPlan: subPlanMapped,
             accountBalance: profileData.accountBalance || 100000,
             joinDate: profileData.joinDate || new Date(user.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-            creditsUsed: profileData.creditsUsed !== undefined ? profileData.creditsUsed : 0,
-            creditsLimit: profileData.credits !== undefined ? profileData.credits : (profileData.creditsLimit !== undefined ? profileData.creditsLimit : 3),
+            creditsUsed: usedCredits,
+            creditsLimit: limitCredits,
             nextResetDate: profileData.expiry_date || profileData.nextResetDate || "N/A",
             paymentFailed: !!profileData.paymentFailed,
             role: profileData.role || "user",
-            plan_name: loadedPlan,
-            subscription_status: (loadedPlan === "PRO" || loadedPlan === "ELITE") ? "active" : "inactive",
-            free_analyses_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.free_analyses_remaining !== undefined ? profileData.free_analyses_remaining : 3),
-            credits_remaining: profileData.credits !== undefined ? profileData.credits : (profileData.credits_remaining !== undefined ? profileData.credits_remaining : 3),
-            total_credits: profileData.credits !== undefined ? profileData.credits : (profileData.total_credits !== undefined ? profileData.total_credits : 3),
+            plan_name: currentPlanName,
+            subscription_status: profileData.subscription_status || ((loadedPlan === "PRO" || loadedPlan === "ELITE" || loadedPlan === "FREE_TRIAL") ? "active" : "inactive"),
+            free_analyses_remaining: remainingCredits,
+            credits_remaining: remainingCredits,
+            total_credits: limitCredits,
             plan: loadedPlan as 'FREE_TRIAL' | 'PRO' | 'ELITE',
-            credits: profileData.credits !== undefined ? profileData.credits : 3,
+            credits: remainingCredits,
             price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
             activation_date: profileData.activation_date || profileData.joinDate || "",
             expiry_date: profileData.expiry_date || "Never",
             payment_history: parsedHistory
           };
         } else {
-          // Profile does not exist yet (newly created account). Insert default profile!
+          // Profile does not exist yet (newly created account). Insert default profile with Status = ACTIVE!
           const todayDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
           mappedProfile = {
             id: user.id,
@@ -333,7 +373,7 @@ export default function App() {
             nextResetDate: "Never",
             paymentFailed: false,
             plan_name: "FREE_TRIAL",
-            subscription_status: "inactive",
+            subscription_status: "active",
             free_analyses_remaining: 3,
             credits_remaining: 3,
             total_credits: 3,
@@ -356,7 +396,7 @@ export default function App() {
             credits_remaining: 3,
             total_credits: 3,
             free_analyses_remaining: 3,
-            subscription_status: "inactive",
+            subscription_status: "active",
             nextResetDate: "Never",
             paymentFailed: false,
             joinDate: mappedProfile.joinDate,

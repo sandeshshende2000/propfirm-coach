@@ -73,7 +73,7 @@ export default function AIAnalysis({
   onUpdateProfile,
   onNavigateToTab
 }: AIAnalysisProps) {
-  const { profile, initiatePayPalCheckout } = useSubscription();
+  const { profile, initiatePayPalCheckout, isVerifying, isPaypalProcessing } = useSubscription();
   // Config state
   const [pair, setPair] = useState(() => localStorage.getItem("last_selected_pair") || "XAUUSD");
   const [accountSize, setAccountSize] = useState(activeChallenge?.accountSize || 100000);
@@ -1035,39 +1035,64 @@ export default function AIAnalysis({
             {/* In-Modal Upgrade Plan Options */}
             <div className="grid sm:grid-cols-2 gap-4">
               {/* Pro Trader upgrade panel */}
-              <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/40 rounded-2xl p-4 flex flex-col justify-between space-y-4">
-                <div className="space-y-1">
-                  <div className="flex justify-between items-start">
-                    <span className="text-[10px] font-mono text-blue-400 font-bold uppercase">PRO TRADER</span>
-                    <span className="bg-blue-500/15 text-blue-400 text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border border-blue-500/10">BEST CHOICE</span>
+              <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 transition-all duration-200">
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-[11px] font-mono text-blue-400 font-extrabold uppercase tracking-widest block mb-1">PRO TRADER</span>
+                    <h4 className="text-2xl font-black text-white">$29<span className="text-xs text-slate-500 font-normal">/month</span></h4>
                   </div>
-                  <h4 className="text-xl font-black text-white">$29<span className="text-xs text-slate-500 font-normal">/mo</span></h4>
-                  <p className="text-[10px] text-slate-405 leading-relaxed">
-                    200 AI Analyses Per Month with Trade Journal + Risk Calculator integration.
-                  </p>
+                  <ul className="space-y-2 text-xs font-mono text-slate-300 text-left">
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>200 AI Analyses / Month</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Trade Journal</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Risk Calculator</span>
+                    </li>
+                  </ul>
                 </div>
                 <button
                   onClick={() => handleUpgradeLocal('Pro')}
-                  className="w-full py-2 bg-blue-550 hover:bg-blue-400 text-slate-950 text-[10px] font-mono font-black uppercase rounded-lg transition-colors cursor-pointer"
+                  disabled={isVerifying || isPaypalProcessing}
+                  className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:from-slate-800 disabled:to-slate-800 disabled:opacity-50 text-white text-xs font-mono font-bold uppercase rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center hover:scale-[1.02] active:scale-95 disabled:pointer-events-none shadow-md shadow-blue-500/10"
                 >
-                  {profile.subscriptionPlan === 'Free' ? "Upgrade To Pro" : "Upgrade Pro"}
+                  Upgrade To PRO
                 </button>
               </div>
 
               {/* Elite Trader upgrade panel */}
-              <div className="bg-slate-950 border border-slate-800 hover:border-purple-500/40 rounded-2xl p-4 flex flex-col justify-between space-y-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-mono text-indigo-405 font-bold uppercase">ELITE TRADER</span>
-                  <h4 className="text-xl font-black text-white">$49<span className="text-xs text-slate-500 font-normal">/mo</span></h4>
-                  <p className="text-[10px] text-slate-405 leading-relaxed">
-                    500 AI Analyses Per Month, Priority Processing & Advanced Analytics.
-                  </p>
+              <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/40 rounded-2xl p-5 flex flex-col justify-between space-y-4 transition-all duration-200">
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-[11px] font-mono text-blue-400 font-extrabold uppercase tracking-widest block mb-1">ELITE TRADER</span>
+                    <h4 className="text-2xl font-black text-white">$49<span className="text-xs text-slate-500 font-normal">/month</span></h4>
+                  </div>
+                  <ul className="space-y-2 text-xs font-mono text-slate-300 text-left">
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>500 AI Analyses / Month</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Priority Processing</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Advanced Analytics</span>
+                    </li>
+                  </ul>
                 </div>
                 <button
                   onClick={() => handleUpgradeLocal('Elite')}
-                  className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-mono font-black uppercase rounded-lg transition-colors cursor-pointer"
+                  disabled={isVerifying || isPaypalProcessing}
+                  className="w-full py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:from-slate-800 disabled:to-slate-800 disabled:opacity-50 text-white text-xs font-mono font-bold uppercase rounded-xl transition-all duration-200 cursor-pointer text-center flex items-center justify-center hover:scale-[1.02] active:scale-95 disabled:pointer-events-none shadow-md shadow-blue-500/10"
                 >
-                  {profile.subscriptionPlan === 'Free' ? "Upgrade To Elite" : "Upgrade Elite"}
+                  Upgrade To ELITE
                 </button>
               </div>
             </div>
