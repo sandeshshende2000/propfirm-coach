@@ -1,4 +1,4 @@
-import { PropChallenge, TradeJournalEntry, UserProfile, AIAnalysisResult } from "./types";
+import { TradeJournalEntry, UserProfile, AIAnalysisResult } from "./types";
 
 export const SAMPLE_USER_PROFILE: UserProfile = {
   name: "Alexander Mercer",
@@ -11,37 +11,6 @@ export const SAMPLE_USER_PROFILE: UserProfile = {
   nextResetDate: "Jul 22, 2026",
   paymentFailed: false,
 };
-
-export const SAMPLE_CHALLENGES: PropChallenge[] = [
-  {
-    id: "challenge-1",
-    name: "FundingPips $100K Phase 1",
-    firmType: "FundingPips",
-    accountSize: 100000,
-    dailyLossLimitPercent: 5,
-    maxDrawdownPercent: 10,
-    targetProfitPercent: 8,
-    currentProfit: 4520,
-    currentLossToday: 1250,
-    daysTraded: 8,
-    startDate: "2026-06-10",
-    status: "ACTIVE",
-  },
-  {
-    id: "challenge-2",
-    name: "FTMO $50K Verification",
-    firmType: "FTMO",
-    accountSize: 50000,
-    dailyLossLimitPercent: 5,
-    maxDrawdownPercent: 10,
-    targetProfitPercent: 5,
-    currentProfit: 2550,
-    currentLossToday: 0,
-    daysTraded: 4,
-    startDate: "2024-06-15",
-    status: "PASSED",
-  }
-];
 
 export const SAMPLE_TRADE_JOURNAL: TradeJournalEntry[] = [
   {
@@ -183,7 +152,6 @@ export const SAAS_PLANS = [
       "Multi-Timeframe Analysis",
       "H1 + M15 + M5 Analysis",
       "Trade Journal",
-      "Challenge Tracker",
       "Risk Calculator",
       "Analysis History",
       "Email Support"

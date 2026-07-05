@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft, Search, Star, ChevronDown, Clock } from "lucide-react";
-import { AIAnalysisResult, PropChallenge, AIAnalysisRecord, UserProfile } from "../types";
+import { AIAnalysisResult, AIAnalysisRecord, UserProfile } from "../types";
 import { DEMO_ANALYSIS_CHANNELS } from "../data";
 import { useSubscription } from "../context/SubscriptionContext";
 
@@ -59,7 +59,6 @@ const CATEGORIZED_ASSETS: { [category: string]: { symbol: string; name: string }
 
 interface AIAnalysisProps {
   profile: UserProfile;
-  activeChallenge: PropChallenge;
   analyses?: AIAnalysisRecord[];
   onAddAnalysis?: (analysis: Omit<AIAnalysisRecord, "id" | "date">) => void;
   onUpdateProfile?: (updated: UserProfile) => void;
@@ -67,7 +66,6 @@ interface AIAnalysisProps {
 }
 
 export default function AIAnalysis({ 
-  activeChallenge, 
   analyses = [], 
   onAddAnalysis,
   onUpdateProfile,
@@ -76,7 +74,7 @@ export default function AIAnalysis({
   const { profile, initiatePayPalCheckout, isVerifying, isPaypalProcessing } = useSubscription();
   // Config state
   const [pair, setPair] = useState(() => localStorage.getItem("last_selected_pair") || "XAUUSD");
-  const [accountSize, setAccountSize] = useState(activeChallenge?.accountSize || 100000);
+  const [accountSize, setAccountSize] = useState(100000);
   const [riskPercent, setRiskPercent] = useState(1);
   const [session, setSession] = useState("New York Open");
 

@@ -25,8 +25,8 @@ import {
 } from "lucide-react";
 
 // Types & Data
-import { PropChallenge, TradeJournalEntry, UserProfile, ChatMessage, AIAnalysisRecord } from "./types";
-import { SAMPLE_USER_PROFILE, SAMPLE_CHALLENGES, SAMPLE_TRADE_JOURNAL } from "./data";
+import { TradeJournalEntry, UserProfile, ChatMessage, AIAnalysisRecord } from "./types";
+import { SAMPLE_USER_PROFILE, SAMPLE_TRADE_JOURNAL } from "./data";
 import { db, supabase, isSupabaseConfigured } from "./supabaseClient";
 
 // Sub-screens components
@@ -34,7 +34,6 @@ import LandingPage from "./components/LandingPage";
 import DashboardOverview from "./components/DashboardOverview";
 import AIAnalysis from "./components/AIAnalysis";
 import TradeJournal from "./components/TradeJournal";
-import ChallengeTracker from "./components/ChallengeTracker";
 import RiskCalculator from "./components/RiskCalculator";
 import PerformanceAnalytics from "./components/PerformanceAnalytics";
 import AccountSettings from "./components/AccountSettings";
@@ -93,7 +92,6 @@ export default function App() {
       "/dashboard",
       "/analysis",
       "/journal",
-      "/challenge",
       "/calculator",
       "/analytics",
       "/settings",
@@ -193,14 +191,8 @@ export default function App() {
 
   // Core Global States
   const [profile, setProfile] = useState<UserProfile>(() => db.getProfile(isDemoMode));
-  const [challenges, setChallenges] = useState<PropChallenge[]>(() => db.getChallenges(isDemoMode));
   const [trades, setTrades] = useState<TradeJournalEntry[]>(() => db.getTrades(isDemoMode));
   const [analyses, setAnalyses] = useState<AIAnalysisRecord[]>(() => db.getAnalyses(isDemoMode));
-
-  const [activeChallengeId, setActiveChallengeId] = useState<string>(() => {
-    const currentChallenges = db.getChallenges(isDemoMode);
-    return currentChallenges[0]?.id || "";
-  });
 
   // 1. Listen for Supabase session on mount & react to Auth state changes
   useEffect(() => {
@@ -232,7 +224,6 @@ export default function App() {
             "/dashboard",
             "/analysis",
             "/journal",
-            "/challenge",
             "/calculator",
             "/analytics",
             "/settings",
@@ -496,11 +487,6 @@ export default function App() {
         setProfile(mappedProfile);
         db.saveProfile(mappedProfile, false, false); // Local cache only, never trigger redundant Supabase writes
 
-        // Fetch user challenges - Bypassed/Disabled to remove database dependency on missing challenges table
-        let mappedChallenges: PropChallenge[] = db.getChallenges(false);
-        setChallenges(mappedChallenges);
-        db.saveChallenges(mappedChallenges, false, false); // Local cache only
-
         // Fetch user trades - Bypassed/Disabled to run only with local storage
         let mappedTrades: TradeJournalEntry[] = db.getTrades(false);
         setTrades(mappedTrades);
@@ -593,7 +579,6 @@ export default function App() {
     localStorage.setItem("TRADEMODEAI_IS_DEMO", JSON.stringify(isDemoMode));
     if (!isAuthenticated) {
       setProfile(db.getProfile(isDemoMode));
-      setChallenges(db.getChallenges(isDemoMode));
       setTrades(db.getTrades(isDemoMode));
       setAnalyses(db.getAnalyses(isDemoMode));
     }
@@ -602,46 +587,11 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = db.subscribe(() => {
       setProfile(db.getProfile(isDemoMode));
-      setChallenges(db.getChallenges(isDemoMode));
       setTrades(db.getTrades(isDemoMode));
       setAnalyses(db.getAnalyses(isDemoMode));
     });
     return unsubscribe;
   }, [isDemoMode]);
-
-  useEffect(() => {
-    if (challenges.length > 0) {
-      if (!challenges.some(c => c.id === activeChallengeId)) {
-        setActiveChallengeId(challenges[0].id);
-      }
-    } else {
-      setActiveChallengeId("");
-    }
-  }, [challenges, activeChallengeId]);
-
-  // Sync challenge profits on changes
-  useEffect(() => {
-    if (challenges.length > 0 && activeChallengeId) {
-      const activeChal = challenges.find(c => c.id === activeChallengeId);
-      if (activeChal) {
-        // Calculate dynamic net profit from trades matching this challenge
-        const netProfit = trades.reduce((acc, curr) => acc + curr.profit, 0);
-        const updated = challenges.map((chal) => {
-          if (chal.id === activeChallengeId) {
-            return {
-              ...chal,
-              currentProfit: netProfit,
-              currentLossToday: netProfit < 0 ? Math.abs(netProfit) : 0,
-            };
-          }
-          return chal;
-        });
-        if (JSON.stringify(updated) !== JSON.stringify(challenges)) {
-          db.saveChallenges(updated, isDemoMode);
-        }
-      }
-    }
-  }, [trades, activeChallengeId, challenges, isDemoMode]);
 
   // AI Psychologist Companion states
   const [showCoachDesk, setShowCoachDesk] = useState(false);
@@ -678,18 +628,6 @@ export default function App() {
 
   const handleDeleteTrade = (id: string) => {
     db.saveTrades(trades.filter((t) => t.id !== id), isDemoMode);
-  };
-
-  const handleAddChallenge = (newChallenge: Omit<PropChallenge, "id" | "daysTraded" | "startDate" | "status">) => {
-    const fresh: PropChallenge = {
-      ...newChallenge,
-      id: "challenge-" + Date.now(),
-      daysTraded: 1,
-      startDate: new Date().toISOString().split("T")[0],
-      status: "ACTIVE",
-    };
-    db.saveChallenges([fresh, ...challenges], isDemoMode);
-    setActiveChallengeId(fresh.id);
   };
 
   const handleAddAnalysis = (newAnalysis: Omit<AIAnalysisRecord, "id" | "date">) => {
@@ -732,18 +670,18 @@ export default function App() {
     setShowCoachDesk(true);
 
     try {
-      const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0];
+      const netProfit = trades.reduce((acc, curr) => acc + curr.profit, 0);
       const res = await fetch("/api/coach-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...coachMessages, userMsg],
           context: {
-            challengeName: activeChallenge?.name,
-            firm: activeChallenge?.firmType,
-            accountSize: activeChallenge?.accountSize,
-            profit: activeChallenge?.currentProfit,
-            lossToday: activeChallenge?.currentLossToday,
+            portfolioName: "Primary Portfolio",
+            firm: "Prop",
+            accountSize: 100000,
+            profit: netProfit,
+            lossToday: netProfit < 0 ? Math.abs(netProfit) : 0,
           },
         }),
       });
@@ -799,18 +737,18 @@ export default function App() {
     setIsCoachThinking(true);
 
     try {
-      const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0];
+      const netProfit = trades.reduce((acc, curr) => acc + curr.profit, 0);
       const res = await fetch("/api/coach-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...coachMessages, userMsg],
           context: {
-            challengeName: activeChallenge?.name,
-            firm: activeChallenge?.firmType,
-            accountSize: activeChallenge?.accountSize,
-            profit: activeChallenge?.currentProfit,
-            lossToday: activeChallenge?.currentLossToday,
+            portfolioName: "Primary Portfolio",
+            firm: "Prop",
+            accountSize: 100000,
+            profit: netProfit,
+            lossToday: netProfit < 0 ? Math.abs(netProfit) : 0,
           },
         }),
       });
@@ -836,7 +774,7 @@ export default function App() {
           {
             id: "m-coach-" + Date.now(),
             role: "assistant",
-            content: "Patience pays premium. Let's map your key support orderblocks. Keep your risk cost restricted to pass this FundingPips challenge cleanly.",
+            content: "Patience pays premium. Let's map your key support orderblocks. Keep your risk cost restricted to elevate your trading consistency cleanly.",
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
         ]);
@@ -851,7 +789,6 @@ export default function App() {
     { label: "Dashboard", icon: <Layers className="w-4 h-4" /> },
     { label: "AI Analysis", icon: <Brain className="w-4 h-4" /> },
     { label: "Trade Journal", icon: <Clipboard className="w-4 h-4" /> },
-    { label: "Challenge Tracker", icon: <Award className="w-4 h-4" /> },
     { label: "Risk Calculator", icon: <Calculator className="w-4 h-4" /> },
     { label: "Performance Analytics", icon: <Activity className="w-4 h-4" /> },
     { label: "Manage Subscription", icon: <CreditCard className="w-4 h-4" /> },
@@ -916,8 +853,6 @@ export default function App() {
         return renderPortalView("AI Analysis");
       case "/journal":
         return renderPortalView("Trade Journal");
-      case "/challenge":
-        return renderPortalView("Challenge Tracker");
       case "/calculator":
         return renderPortalView("Risk Calculator");
       case "/analytics":
@@ -980,7 +915,6 @@ export default function App() {
                   "Dashboard": "/dashboard",
                   "AI Analysis": "/analysis",
                   "Trade Journal": "/journal",
-                  "Challenge Tracker": "/challenge",
                   "Risk Calculator": "/calculator",
                   "Performance Analytics": "/analytics",
                   "Manage Subscription": "/subscription",
@@ -989,20 +923,14 @@ export default function App() {
                 };
                 const targetPath = pathMap[item.label] || "/dashboard";
                 const isSelected = tab === item.label;
-                const isDisabled = item.label === "Challenge Tracker";
                 return (
                   <button
                     key={item.label}
                     onClick={() => {
-                      if (!isDisabled) {
-                        navigate(targetPath);
-                      }
+                      navigate(targetPath);
                     }}
-                    disabled={isDisabled}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold font-mono transition-all uppercase ${
-                      isDisabled
-                        ? "opacity-40 cursor-not-allowed text-slate-500 border border-transparent"
-                        : isSelected
+                      isSelected
                         ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-lg shadow-blue-500/5 cursor-pointer"
                         : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/30 border border-transparent cursor-pointer"
                     }`}
@@ -1011,11 +939,6 @@ export default function App() {
                       {item.icon}
                       <span>{item.label}</span>
                     </div>
-                    {isDisabled && (
-                      <span className="text-[9px] bg-red-500/10 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded uppercase font-black tracking-widest scale-90">
-                        Offline
-                      </span>
-                    )}
                   </button>
                 );
               })}
@@ -1112,17 +1035,13 @@ export default function App() {
              {tab === "Dashboard" && (
               <DashboardOverview
                 profile={profile}
-                challenges={challenges}
                 trades={trades}
                 analyses={analyses}
-                activeChallengeId={activeChallengeId}
-                onSelectChallenge={(id) => setActiveChallengeId(id)}
                 onNavigateToTab={(targetTab) => {
                   const map: Record<string, string> = {
                     "Dashboard": "/dashboard",
                     "AI Analysis": "/analysis",
                     "Trade Journal": "/journal",
-                    "Challenge Tracker": "/challenge",
                     "Risk Calculator": "/calculator",
                     "Performance Analytics": "/analytics",
                     "Manage Subscription": "/subscription",
@@ -1141,7 +1060,6 @@ export default function App() {
             {tab === "AI Analysis" && (
               <AIAnalysis
                 profile={profile}
-                activeChallenge={challenges.find((c) => c.id === activeChallengeId) || challenges[0]}
                 analyses={analyses}
                 onAddAnalysis={handleAddAnalysis}
                 onUpdateProfile={handleUpdateFullProfile}
@@ -1150,7 +1068,6 @@ export default function App() {
                     "Dashboard": "/dashboard",
                     "AI Analysis": "/analysis",
                     "Trade Journal": "/journal",
-                    "Challenge Tracker": "/challenge",
                     "Risk Calculator": "/calculator",
                     "Performance Analytics": "/analytics",
                     "Manage Subscription": "/subscription",
@@ -1170,19 +1087,10 @@ export default function App() {
               />
             )}
 
-            {tab === "Challenge Tracker" && (
-              <ChallengeTracker
-                challenges={challenges}
-                activeChallengeId={activeChallengeId}
-                onAddChallenge={handleAddChallenge}
-                onSelectChallenge={(id) => setActiveChallengeId(id)}
-              />
-            )}
-
             {tab === "Risk Calculator" && <RiskCalculator />}
 
             {tab === "Performance Analytics" && (
-              <PerformanceAnalytics trades={trades} challenges={challenges} />
+              <PerformanceAnalytics trades={trades} />
             )}
 
             {tab === "Manage Subscription" && (
@@ -1194,7 +1102,6 @@ export default function App() {
                     "Dashboard": "/dashboard",
                     "AI Analysis": "/analysis",
                     "Trade Journal": "/journal",
-                    "Challenge Tracker": "/challenge",
                     "Risk Calculator": "/calculator",
                     "Performance Analytics": "/analytics",
                     "Manage Subscription": "/subscription",
@@ -1526,7 +1433,7 @@ CREATE POLICY "Users can manage their own subscriptions" ON public.subscriptions
                 </button>
               </div>
               <p className="text-[10px] font-mono text-slate-500 leading-normal">
-                This query creates all tables (<span className="text-slate-400">profiles, challenges, trades, analysis_history, payments, subscriptions</span>) and establishes Row Level Security (RLS) policies.
+                This query creates all tables (<span className="text-slate-400">profiles, analysis_history, payments, subscriptions</span>) and establishes Row Level Security (RLS) policies.
               </p>
             </div>
 

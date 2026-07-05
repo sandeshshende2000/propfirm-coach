@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { UserProfile, PropChallenge, TradeJournalEntry, AIAnalysisRecord, ChatMessage } from "./types";
+import { UserProfile, TradeJournalEntry, AIAnalysisRecord, ChatMessage } from "./types";
 
 // Lazy-initialization of Supabase Client to prevent crashes if credentials have not been configured yet
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
@@ -14,7 +14,6 @@ export const supabase = isSupabaseConfigured
 // Database State Structure
 interface DatabaseSchema {
   profile: UserProfile;
-  challenges: PropChallenge[];
   trades: TradeJournalEntry[];
   analyses: AIAnalysisRecord[];
   chats: ChatMessage[];
@@ -43,7 +42,6 @@ const DEFAULT_REAL_USER_SCHEMA: DatabaseSchema = {
     expiry_date: "Never",
     payment_history: []
   },
-  challenges: [],
   trades: [],
   analyses: [],
   chats: [
@@ -103,45 +101,6 @@ class RealTimeDatabase {
       };
     }
     return DEFAULT_REAL_USER_SCHEMA.profile;
-  }
-
-  getChallenges(isDemo: boolean = false): PropChallenge[] {
-    const saved = localStorage.getItem(this.getStorageKey("CHALLENGES", isDemo));
-    if (saved) return JSON.parse(saved);
-
-    if (isDemo) {
-      return [
-        {
-          id: "challenge-1",
-          name: "FundingPips $100K Phase 1",
-          firmType: "FundingPips",
-          accountSize: 100000,
-          dailyLossLimitPercent: 5,
-          maxDrawdownPercent: 10,
-          targetProfitPercent: 8,
-          currentProfit: 4520,
-          currentLossToday: 1250,
-          daysTraded: 8,
-          startDate: "2026-06-10",
-          status: "ACTIVE",
-        },
-        {
-          id: "challenge-2",
-          name: "FTMO $50K Verification",
-          firmType: "FTMO",
-          accountSize: 50000,
-          dailyLossLimitPercent: 5,
-          maxDrawdownPercent: 10,
-          targetProfitPercent: 5,
-          currentProfit: 2550,
-          currentLossToday: 0,
-          daysTraded: 4,
-          startDate: "2024-06-15",
-          status: "PASSED",
-        }
-      ];
-    }
-    return DEFAULT_REAL_USER_SCHEMA.challenges;
   }
 
   getTrades(isDemo: boolean = false): TradeJournalEntry[] {
@@ -328,11 +287,6 @@ class RealTimeDatabase {
     this.notify();
   }
 
-  saveChallenges(challenges: PropChallenge[], isDemo: boolean = false, syncToDb: boolean = true) {
-    localStorage.setItem(this.getStorageKey("CHALLENGES", isDemo), JSON.stringify(challenges));
-    this.notify();
-  }
-
   saveTrades(trades: TradeJournalEntry[], isDemo: boolean = false, syncToDb: boolean = true) {
     localStorage.setItem(this.getStorageKey("TRADES", isDemo), JSON.stringify(trades));
     this.notify();
@@ -352,13 +306,11 @@ class RealTimeDatabase {
   resetToFreshState(isDemo: boolean = false) {
     if (isDemo) {
       localStorage.removeItem(this.getStorageKey("PROFILE", true));
-      localStorage.removeItem(this.getStorageKey("CHALLENGES", true));
       localStorage.removeItem(this.getStorageKey("TRADES", true));
       localStorage.removeItem(this.getStorageKey("ANALYSES", true));
       localStorage.removeItem(this.getStorageKey("CHATS", true));
     } else {
       localStorage.setItem(this.getStorageKey("PROFILE", false), JSON.stringify(DEFAULT_REAL_USER_SCHEMA.profile));
-      localStorage.setItem(this.getStorageKey("CHALLENGES", false), JSON.stringify(DEFAULT_REAL_USER_SCHEMA.challenges));
       localStorage.setItem(this.getStorageKey("TRADES", false), JSON.stringify(DEFAULT_REAL_USER_SCHEMA.trades));
       localStorage.setItem(this.getStorageKey("ANALYSES", false), JSON.stringify(DEFAULT_REAL_USER_SCHEMA.analyses));
       localStorage.setItem(this.getStorageKey("CHATS", false), JSON.stringify(DEFAULT_REAL_USER_SCHEMA.chats));
@@ -367,15 +319,11 @@ class RealTimeDatabase {
   }
 
   // Real-time calculation helpers as dictated in request
-  calculateDashboardMetrics(isDemo: boolean = false, activeChallengeId?: string) {
-    const listChallenges = this.getChallenges(isDemo);
+  calculateDashboardMetrics(isDemo: boolean = false) {
     const listTrades = this.getTrades(isDemo);
     const listAnalyses = this.getAnalyses(isDemo);
 
-    const activeChallenge = listChallenges.find(c => c.id === activeChallengeId) || listChallenges[0] || null;
-
-    // Account properties
-    const activeAccountSize = activeChallenge ? activeChallenge.accountSize : 0;
+    const activeAccountSize = 100000;
     
     // Total Trades taken
     const tradesTaken = listTrades.length;
@@ -392,11 +340,6 @@ class RealTimeDatabase {
     const grossLoss = Math.abs(listTrades.filter(t => t.profit < 0).reduce((acc, t) => acc + t.profit, 0));
     const profitFactor = grossLoss > 0 ? parseFloat((grossProfit / grossLoss).toFixed(2)) : grossProfit > 0 ? grossProfit : 0;
 
-    // Challenge Progress
-    const targetProfitPercent = activeChallenge ? activeChallenge.targetProfitPercent : 0;
-    const targetProfitDollars = (activeAccountSize * targetProfitPercent) / 100;
-    const challengeProgress = targetProfitDollars > 0 ? Math.min(100, Math.max(0, (netProfit / targetProfitDollars) * 100)) : 0;
-
     // Risk Metrics
     const avgWin = wins.length > 0 ? (grossProfit / wins.length) : 0;
     const lossesCount = listTrades.filter(t => t.status === "LOSS").length;
@@ -408,15 +351,15 @@ class RealTimeDatabase {
 
     return {
       accountSize: activeAccountSize,
-      currentProfit: activeChallenge ? activeChallenge.currentProfit : 0,
+      currentProfit: netProfit,
       winRate,
       tradesTaken,
-      challengeProgress,
-      profitTarget: targetProfitDollars,
+      portfolioProgress: 0,
+      profitTarget: 10000,
       riskMetrics: riskRewardRatio,
       profitFactor,
       aiUsageCount,
-      activeChallengeName: activeChallenge ? activeChallenge.name : ""
+      activePortfolioName: ""
     };
   }
 }

@@ -123,10 +123,10 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
       avatarColor: "bg-indigo-500/20 text-indigo-400"
     },
     {
-      text: "The challenge tracker is incredible.",
+      text: "The trade journal analytics are incredible.",
       stars: 5,
       author: "Viktor Petrov",
-      tag: "FTMO Master Trader",
+      tag: "Funded Portfolio Trader",
       avatarColor: "bg-sky-500/20 text-sky-400"
     }
   ];

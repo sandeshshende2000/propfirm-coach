@@ -74,21 +74,6 @@ export interface TradeJournalEntry {
   chartUrl?: string; // screenshot mockup or uploaded image
 }
 
-export interface PropChallenge {
-  id: string;
-  name: string; // e.g., "FundingPips Evaluation"
-  firmType: 'FundingPips' | 'FTMO' | 'The5ers' | 'FundedNext' | 'Custom';
-  accountSize: number;
-  dailyLossLimitPercent: number; // e.g. 5%
-  maxDrawdownPercent: number; // e.g. 10%
-  targetProfitPercent: number; // e.g. 8%
-  currentProfit: number;
-  currentLossToday: number;
-  daysTraded: number;
-  startDate: string;
-  status: 'ACTIVE' | 'PASSED' | 'FAILED';
-}
-
 export interface UserProfile {
   id?: string;
   name: string;

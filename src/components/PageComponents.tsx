@@ -239,8 +239,8 @@ export function FeaturesPage({ navigate }: RouteProps) {
       icon: <Layers className="w-5 h-5 text-blue-400" />
     },
     {
-      title: "Active Challenge Guardrails",
-      desc: "Continuous telemetry on active FTMO, FundingPips, and custom firm challenges. Never breach daily drawdown limits again.",
+      title: "Strategic Portfolio Guardrails",
+      desc: "Continuous telemetry on active account metrics and custom rules. Never breach daily risk limits again.",
       icon: <Award className="w-5 h-5 text-sky-400" />
     },
     {
@@ -514,7 +514,7 @@ export function FaqPage({ navigate }: RouteProps) {
     },
     {
       q: "Can I use this for multiple accounts simultaneously?",
-      a: "Yes! Under the Pro and VIP plans, you can provision and switch workspaces instantly for up to 5 individual active challenges, aligning metrics concurrently.",
+      a: "Yes! Under the Pro and VIP plans, you can provision and switch portfolios instantly for up to 5 individual account segments, aligning metrics concurrently.",
       cat: "Account Setup"
     },
     {
@@ -1270,7 +1270,7 @@ export function PrivacyPolicyPage({ navigate }: RouteProps) {
 
           <h3 className="text-base font-bold text-white font-mono uppercase pt-4 border-b border-slate-850 pb-2">2. Local Workspace Isolation</h3>
           <p>
-            Your trade journal logs, emotional metadata entries, and challenge balances are stored locally in your browser workspace cache. They can also securely populate your cloud configuration, if enabled.
+            Your trade journal logs, emotional metadata entries, and portfolio balances are stored locally in your browser workspace cache. They can also securely populate your cloud configuration, if enabled.
           </p>
         </section>
       </main>

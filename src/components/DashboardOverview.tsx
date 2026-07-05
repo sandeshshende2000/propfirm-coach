@@ -16,16 +16,13 @@ import {
   CheckCircle,
   LogOut
 } from "lucide-react";
-import { PropChallenge, TradeJournalEntry, UserProfile, AIAnalysisRecord } from "../types";
+import { TradeJournalEntry, UserProfile, AIAnalysisRecord } from "../types";
 import { useSubscription } from "../context/SubscriptionContext";
 
 interface DashboardOverviewProps {
   profile: UserProfile;
-  challenges: PropChallenge[];
   trades: TradeJournalEntry[];
   analyses?: AIAnalysisRecord[];
-  activeChallengeId: string;
-  onSelectChallenge: (id: string) => void;
   onNavigateToTab: (tab: string) => void;
   isDemoMode: boolean;
   onToggleDemoMode: () => void;
@@ -34,11 +31,8 @@ interface DashboardOverviewProps {
 }
 
 export default function DashboardOverview({
-  challenges,
   trades,
   analyses = [],
-  activeChallengeId,
-  onSelectChallenge,
   onNavigateToTab,
   isDemoMode,
   onToggleDemoMode,
@@ -46,7 +40,6 @@ export default function DashboardOverview({
   onLogout,
 }: DashboardOverviewProps) {
   const { profile, initiatePayPalCheckout } = useSubscription();
-  const activeChallenge = challenges.find((c) => c.id === activeChallengeId) || challenges[0] || null;
 
   const [dbPlans, setDbPlans] = useState<any[]>([]);
 
@@ -67,27 +60,15 @@ export default function DashboardOverview({
   const winRate = totalTrades > 0 ? Math.round((winsCount / totalTrades) * 100) : 0;
   const totalNetProfit = trades.reduce((acc, t) => acc + t.profit, 0);
 
-  // Challenge objectives variables
-  const hasChallenge = !!activeChallenge;
-  const accountSize = hasChallenge ? activeChallenge.accountSize : 0;
-  const currentProfit = hasChallenge ? activeChallenge.currentProfit : 0;
-
-  const dailyLossLimitDollars = hasChallenge ? (accountSize * activeChallenge.dailyLossLimitPercent) / 100 : 0;
-  const maxDrawdownLimitDollars = hasChallenge ? (accountSize * activeChallenge.maxDrawdownPercent) / 100 : 0;
-  const targetProfitPercent = hasChallenge ? activeChallenge.targetProfitPercent : 0;
-  const targetProfitDollars = hasChallenge ? (accountSize * targetProfitPercent) / 100 : 0;
-
-  const dailyDrawdownRemaining = hasChallenge 
-    ? Math.max(0, dailyLossLimitDollars - activeChallenge.currentLossToday) 
-    : 0;
-
-  const maxDrawdownRemaining = hasChallenge 
-    ? Math.max(0, maxDrawdownLimitDollars - (currentProfit < 0 ? Math.abs(currentProfit) : 0)) 
-    : 0;
-
-  const targetProgressPercent = (hasChallenge && targetProfitDollars > 0)
-    ? Math.min(100, Math.max(0, (currentProfit / targetProfitDollars) * 100)) 
-    : 0;
+  // Performance metrics calculated from Trade Journal
+  const grossProfit = trades.filter((t) => t.status === "WIN").reduce((acc, t) => acc + t.profit, 0);
+  const grossLoss = Math.abs(trades.filter((t) => t.status === "LOSS").reduce((acc, t) => acc + t.profit, 0));
+  const profitFactor = grossLoss > 0 ? parseFloat((grossProfit / grossLoss).toFixed(2)) : (grossProfit > 0 ? grossProfit : 0);
+  
+  const avgWin = winsCount > 0 ? Math.round(grossProfit / winsCount) : 0;
+  const lossesCount = trades.filter((t) => t.status === "LOSS").length;
+  const avgLoss = lossesCount > 0 ? Math.round(grossLoss / lossesCount) : 0;
+  const riskRewardRatio = avgLoss > 0 ? parseFloat((avgWin / avgLoss).toFixed(2)) : 0;
 
   // AI Cognitive insights discipline meter
   const aiAnalysesCount = analyses.length;
@@ -164,7 +145,7 @@ export default function DashboardOverview({
           </p>
         </div>
 
-        {/* Active Workspace / Challenge Selector */}
+        {/* Active Workspace Status */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5 bg-slate-900/50 border border-slate-800 rounded-lg px-2.5 py-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
@@ -173,43 +154,16 @@ export default function DashboardOverview({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-mono">WORKSPACE:</span>
-            {challenges.length > 0 ? (
-              <select
-                value={activeChallengeId}
-                onChange={(e) => onSelectChallenge(e.target.value)}
-                className="bg-slate-900 border border-slate-800 rounded-lg text-xs font-bold text-slate-200 px-3 py-2 outline-none focus:border-blue-500/60"
-              >
-                {challenges.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} (${c.accountSize.toLocaleString()})
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="text-xs text-amber-500 font-mono font-bold bg-amber-500/10 border border-amber-500/25 rounded-md px-2.5 py-1">
-                No challenge selected
-              </span>
-            )}
+          {onLogout && (
             <button
-              onClick={() => onNavigateToTab("Challenge Tracker")}
-              className="p-2 bg-slate-900 hover:bg-slate-850 hover:text-white rounded-lg border border-slate-800 transition-colors"
-              title="Add Challenge"
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 text-rose-400 hover:text-rose-350 rounded-lg text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
+              title="Logout Session"
             >
-              <Plus className="w-3.5 h-3.5 text-slate-300" />
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Logout</span>
             </button>
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                className="flex items-center gap-1.5 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 text-rose-400 hover:text-rose-350 rounded-lg text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
-                title="Logout Session"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>Logout</span>
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -297,7 +251,7 @@ export default function DashboardOverview({
             <div>
               <span className="text-xs font-mono text-slate-400">TOTAL CAPITAL</span>
               <span className="block text-xl sm:text-2xl font-black text-white mt-1">
-                ${(accountSize + currentProfit).toLocaleString()}
+                ${(100000 + totalNetProfit).toLocaleString()}
               </span>
             </div>
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
@@ -305,61 +259,29 @@ export default function DashboardOverview({
             </div>
           </div>
           <p className="text-[10px] text-slate-400 font-mono">
-            Initial Size: <span className="text-slate-300 font-semibold">${accountSize.toLocaleString()}</span>
+            Initial Balance: <span className="text-slate-300 font-semibold">$100,000</span>
           </p>
         </div>
 
-        {/* KPI 2: Daily Drawdown Remaining */}
+        {/* KPI 2: Total Net Profit */}
         <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 relative group hover:border-slate-700/60 transition-all overflow-hidden">
           <div className="flex items-start justify-between mb-2">
             <div>
-              <span className="text-xs font-mono text-slate-400">DAILY LIMIT REMAINING</span>
-              <span className="block text-xl sm:text-2xl font-black text-emerald-400 mt-1">
-                ${dailyDrawdownRemaining.toLocaleString()}
+              <span className="text-xs font-mono text-slate-400">NET PROFIT / LOSS</span>
+              <span className={`block text-xl sm:text-2xl font-black mt-1 ${totalNetProfit >= 0 ? "text-emerald-400" : "text-rose-450"}`}>
+                {totalNetProfit >= 0 ? "+" : ""}${totalNetProfit.toLocaleString()}
               </span>
             </div>
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-              <ShieldAlert className="w-4 h-4" />
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full"
-              style={{ width: `${dailyLossLimitDollars > 0 ? (dailyDrawdownRemaining / dailyLossLimitDollars) * 100 : 0}%` }}
-            />
-          </div>
-          <p className="text-[10px] text-slate-400 font-mono mt-1.5 flex justify-between">
-            <span>Loss today: ${hasChallenge ? activeChallenge.currentLossToday.toLocaleString() : "0"}</span>
-            <span>Limit: {hasChallenge ? activeChallenge.dailyLossLimitPercent : "0"}%</span>
+          <p className="text-[10px] text-slate-400 font-mono">
+            Profit Factor: <span className="text-emerald-400 font-bold">{profitFactor}</span>
           </p>
         </div>
 
-        {/* KPI 3: Max Drawdown Remaining */}
-        <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 relative group hover:border-slate-700/60 transition-all overflow-hidden">
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <span className="text-xs font-mono text-slate-400">MAX LIMIT REMAINING</span>
-              <span className="block text-xl sm:text-2xl font-black text-rose-400 mt-1">
-                ${maxDrawdownRemaining.toLocaleString()}
-              </span>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-400">
-              <ShieldAlert className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-            <div
-              className={`bg-rose-500 h-full`}
-              style={{ width: `${maxDrawdownLimitDollars > 0 ? (maxDrawdownRemaining / maxDrawdownLimitDollars) * 100 : 0}%` }}
-            />
-          </div>
-          <p className="text-[10px] text-slate-400 font-mono mt-1.5 flex justify-between">
-            <span>Max drawdown: ${maxDrawdownLimitDollars.toLocaleString()}</span>
-            <span>Limit: {hasChallenge ? activeChallenge.maxDrawdownPercent : "0"}%</span>
-          </p>
-        </div>
-
-        {/* KPI 4: Win Rate Distribution */}
+        {/* KPI 3: Edge Win Factor */}
         <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 relative group hover:border-slate-700/60 transition-all overflow-hidden">
           <div className="flex items-start justify-between mb-2">
             <div>
@@ -369,11 +291,29 @@ export default function DashboardOverview({
               </span>
             </div>
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-              <TrendingUp className="w-4 h-4" />
+              <CheckCircle className="w-4 h-4" />
             </div>
           </div>
           <p className="text-[10px] text-slate-400 font-mono">
-            Out of <span className="text-blue-400 font-bold">{totalTrades}</span> journaled trades
+            Out of <span className="text-blue-450 font-bold">{totalTrades}</span> journaled trades
+          </p>
+        </div>
+
+        {/* KPI 4: AI Cognitive Runs */}
+        <div className="bg-slate-900/40 border border-slate-800/80 rounded-xl p-4 relative group hover:border-slate-700/60 transition-all overflow-hidden">
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <span className="text-xs font-mono text-slate-400">AI COGNITIVE RUNS</span>
+              <span className="block text-xl sm:text-2xl font-black text-indigo-400 mt-1">
+                {aiAnalysesCount}
+              </span>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+              <Brain className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 font-mono">
+            Discipline Score: <span className="text-indigo-400 font-bold">{disciplineScore}%</span>
           </p>
         </div>
       </div>
@@ -560,55 +500,45 @@ export default function DashboardOverview({
 
       {/* Target & AI Coach Dialogue Split Row */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Profit Target Progression Card */}
+        {/* Journal Performance Statistics Card */}
         <div className="lg:col-span-2 bg-slate-900/30 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                 <Target className="w-4 h-4 text-blue-500" />
-                Profit Target Objective
+                Journal Performance Statistics
               </h2>
-              <p className="text-xs text-slate-400 font-mono">OBJECTIVE METRIC REPORT</p>
+              <p className="text-xs text-slate-400 font-mono">CORE SYSTEM METRICS</p>
             </div>
-            <span className="text-xs font-black font-mono text-blue-400 bg-blue-500/10 px-2.5 py-1 rounded bg-slate-950 border border-blue-500/20">
-              {hasChallenge ? `${targetProgressPercent.toFixed(1)}% Completed` : "No challenge selected"}
+            <span className="text-xs font-black font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded bg-slate-950 border border-emerald-500/20">
+              Profit Factor: {profitFactor}
             </span>
           </div>
 
-          <div className="space-y-4">
-            <div className="flex justify-between items-baseline">
-              <span className="text-xs text-slate-400 font-mono">CURRENT PROFIT</span>
-              <span className="text-xl font-extrabold text-white">
-                ${currentProfit.toLocaleString()}
-                <span className="text-xs text-slate-400 font-normal"> / ${targetProfitDollars.toLocaleString()}</span>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-xs font-mono">
+            <div className="bg-slate-950/40 p-4 border border-slate-850 rounded-xl space-y-1">
+              <span className="text-slate-400">AVERAGE WIN:</span>
+              <span className="block text-lg font-black text-emerald-400 mt-1">
+                +${avgWin.toLocaleString()}
               </span>
             </div>
-
-            {/* Progress Track */}
-            <div className="relative">
-              <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-blue-600 via-sky-400 to-indigo-500 h-full rounded-full transition-all duration-1000"
-                  style={{ width: `${targetProgressPercent}%` }}
-                />
-              </div>
-              <div className="absolute right-0 top-0 bottom-0 w-px bg-blue-400/80 h-3" />
+            <div className="bg-slate-950/40 p-4 border border-slate-850 rounded-xl space-y-1">
+              <span className="text-slate-400">AVERAGE LOSS:</span>
+              <span className="block text-lg font-black text-rose-450 mt-1">
+                -${avgLoss.toLocaleString()}
+              </span>
             </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-900 text-xs font-mono">
-              <div>
-                <span className="text-slate-400">REMAINING TARGET BALANCE:</span>
-                <span className="block font-bold text-slate-200 mt-1">
-                  ${Math.max(0, targetProfitDollars - currentProfit).toLocaleString()}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400">ACTIVE TRADING DAYS:</span>
-                <span className="block font-bold text-slate-200 mt-1">
-                  {hasChallenge ? `${activeChallenge.daysTraded} Target logged` : "0 Days logged"}
-                </span>
-              </div>
+            <div className="bg-slate-950/40 p-4 border border-slate-850 rounded-xl space-y-1 col-span-2 md:col-span-1">
+              <span className="text-slate-400">RISK REWARD RATIO:</span>
+              <span className="block text-lg font-black text-blue-450 mt-1">
+                {riskRewardRatio}:1
+              </span>
             </div>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-slate-900 text-[11px] font-mono text-slate-400 flex justify-between">
+            <span>TOTAL TRADE SAMPLES: <strong className="text-white">{totalTrades}</strong></span>
+            <span>WIN RATIO: <strong className="text-emerald-400">{winRate}%</strong></span>
           </div>
         </div>
 
@@ -639,7 +569,7 @@ export default function DashboardOverview({
                 <span className="text-slate-450 italic font-mono block text-center py-2">
                   No analyses yet
                 </span>
-              ) : currentProfit > 0 ? (
+              ) : totalNetProfit > 0 ? (
                 "Your NY Session scaling is performing highly consistently. You have a solid buffer remaining before daily drawdown limits engage. Do not overtrade high-risk currency pairs before London market displacement."
               ) : (
                 "Your trailing stop executions are slightly loose on Bitcoin setups. We recommend keeping stop offsets strictly within 1.5 ATR ranges and restricting initial trade risks to 0.5%."
@@ -658,13 +588,13 @@ export default function DashboardOverview({
       </div>
 
       {/* Shortcuts/Overview Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
         <button
           onClick={() => onNavigateToTab("Risk Calculator")}
           className="p-4 bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 rounded-xl text-left transition-all active:scale-95 flex items-center justify-between group cursor-pointer"
         >
           <div>
-            <span className="text-xs font-mono text-slate-400">RISK METRIC</span>
+            <span className="text-xs font-mono text-slate-400 font-semibold">RISK METRIC</span>
             <span className="block text-sm font-bold text-white mt-1 group-hover:text-blue-500 transition-colors">Risk Calculator &arrow;</span>
           </div>
         </button>
@@ -673,20 +603,9 @@ export default function DashboardOverview({
           className="p-4 bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 rounded-xl text-left transition-all active:scale-95 flex items-center justify-between group cursor-pointer"
         >
           <div>
-            <span className="text-xs font-mono text-slate-400">TRADE JOURNAL</span>
+            <span className="text-xs font-mono text-slate-400 font-semibold">TRADE JOURNAL</span>
             <span className="block text-sm font-bold text-white mt-1 group-hover:text-blue-500 transition-colors">
               {totalTrades === 0 ? "No trades yet" : `Active Logs (${totalTrades}) \u2192`}
-            </span>
-          </div>
-        </button>
-        <button
-          onClick={() => onNavigateToTab("Challenge Tracker")}
-          className="p-4 bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 rounded-xl text-left transition-all active:scale-95 flex items-center justify-between group cursor-pointer"
-        >
-          <div>
-            <span className="text-xs font-mono text-slate-400">CHALLENGE PROGRESS</span>
-            <span className="block text-sm font-bold text-white mt-1 group-hover:text-blue-500 transition-colors">
-              {!hasChallenge ? "No challenge selected" : "Challenge Objectives \u2192"}
             </span>
           </div>
         </button>

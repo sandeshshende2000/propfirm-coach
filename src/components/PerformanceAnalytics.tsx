@@ -13,15 +13,14 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import { TradeJournalEntry, PropChallenge } from "../types";
-import { ShieldCheck, TrendingUp, Sparkles, Activity, Award, BarChart3 } from "lucide-react";
+import { TradeJournalEntry } from "../types";
+import { ShieldCheck, TrendingUp, Sparkles, Activity, BarChart3, Award } from "lucide-react";
 
 interface PerformanceAnalyticsProps {
   trades: TradeJournalEntry[];
-  challenges: PropChallenge[];
 }
 
-export default function PerformanceAnalytics({ trades = [], challenges = [] }: PerformanceAnalyticsProps) {
+export default function PerformanceAnalytics({ trades = [] }: PerformanceAnalyticsProps) {
   const chartPalette = {
     primary: "#3b82f6", // Sleek Blue
     secondary: "#0ea5e9", // Sky Blue
@@ -31,9 +30,7 @@ export default function PerformanceAnalytics({ trades = [], challenges = [] }: P
     gridBorder: "rgba(39, 39, 42, 0.4)", // Grid
   };
 
-  // Determine active challenge account size
-  const activeChallenge = challenges.find(c => c.status === "ACTIVE") || challenges[0] || null;
-  const initialCapital = activeChallenge ? activeChallenge.accountSize : 100000;
+  const initialCapital = 100000;
 
   // Real-time dynamic aggregation
   const hasData = trades.length > 0;
