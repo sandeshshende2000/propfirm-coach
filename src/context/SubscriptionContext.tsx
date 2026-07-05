@@ -93,7 +93,7 @@ export function SubscriptionProvider({
           setPaypalClientId(data.clientId);
         }
       })
-      .catch((err) => console.error("Error fetching PayPal config in context:", err));
+      .catch((err) => console.warn("Issue fetching PayPal config in context:", err));
   }, []);
 
   // Dynamically load PayPal JS SDK
@@ -170,7 +170,7 @@ export function SubscriptionProvider({
               ? JSON.parse(profileData.payment_history)
               : profileData.payment_history;
           } catch (e) {
-            console.error("Error parsing payment history in refreshProfile:", e);
+            console.warn("Issue parsing payment history in refreshProfile:", e);
           }
         }
 
@@ -225,7 +225,7 @@ export function SubscriptionProvider({
         return refreshed;
       }
     } catch (err) {
-      console.error("Error refreshing subscription profile from Supabase:", err);
+      console.warn("Issue refreshing subscription profile from Supabase:", err);
     } finally {
       setIsLoading(false);
     }
@@ -263,7 +263,7 @@ export function SubscriptionProvider({
         });
       }
     } catch (err) {
-      console.error("PayPal Initiation Error:", err);
+      console.warn("PayPal Initiation warning:", err);
       setFeedbackMsg({
         type: "error",
         text: "Failed to connect to PayPal gateway. Check dev settings."
@@ -329,7 +329,7 @@ export function SubscriptionProvider({
         });
       }
     } catch (err) {
-      console.error("PayPal Capture Error:", err);
+      console.warn("PayPal Capture warning:", err);
       setFeedbackMsg({
         type: "error",
         text: "Verification failed on subscription server."

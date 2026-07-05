@@ -43,13 +43,13 @@ export default function PayPalCheckoutModal() {
             cancelPayPalPayment();
           },
           onError: (err: any) => {
-            console.error("PayPal button error:", err);
+            console.warn("PayPal button warning state:", err);
             cancelPayPalPayment();
           }
         }).render(`#${containerId}`);
       }
     } catch (e) {
-      console.error("Error rendering PayPal buttons in Global PayPalCheckoutModal:", e);
+      console.warn("Notice rendering PayPal buttons in Global PayPalCheckoutModal:", e);
     }
   }, [sdkReady, selectedPlanId, paypalClientId, showPaypalModal, paypalOrderId]);
 

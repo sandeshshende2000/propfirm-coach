@@ -291,38 +291,54 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
                   <span className="text-[9px] text-emerald-400 font-mono font-bold tracking-widest bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
-                    SYS LIVE FEED
+                    AI ENGINE ONLINE
                   </span>
                 </div>
               </div>
 
-              {/* Dynamic ticker panel - real-time simulated live price telemetry */}
-              <div className="grid grid-cols-3 gap-2 px-3 py-2 bg-slate-950/80 border border-white/5 rounded-xl text-[10px] font-mono mb-3">
-                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
-                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">XAUUSD (GOLD)</span>
-                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
-                    ${xauPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    <span className={priceDirections.xau === "up" ? "text-emerald-400 font-black animate-pulse" : "text-rose-400 font-black animate-pulse"}>
-                      {priceDirections.xau === "up" ? "▲" : "▼"}
-                    </span>
+              {/* Premium institutional information cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-1 py-1 text-[10px] font-mono mb-3">
+                {/* CARD 1 */}
+                <div className="flex flex-col items-start p-2.5 bg-black/50 border border-blue-500/15 hover:border-blue-500/40 rounded-xl transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">AI MODEL</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs mt-0.5 leading-tight tracking-tight">
+                    TradeModeAI Vision v3.5
+                  </span>
+                  <span className="text-[8px] text-slate-400 mt-1 leading-none font-medium">
+                    Institutional Vision Engine
                   </span>
                 </div>
-                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
-                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">EURUSD (FOREX)</span>
-                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
-                    {eurPrice.toFixed(5)}
-                    <span className={priceDirections.eur === "up" ? "text-emerald-400 font-black" : "text-rose-400 font-black"}>
-                      {priceDirections.eur === "up" ? "▲" : "▼"}
-                    </span>
+
+                {/* CARD 2 */}
+                <div className="flex flex-col items-start p-2.5 bg-black/50 border border-blue-500/15 hover:border-blue-500/40 rounded-xl transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">FRAMEWORK</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs mt-0.5 leading-tight tracking-tight">
+                    ICT + SMC + Wyckoff
+                  </span>
+                  <span className="text-[8px] text-slate-400 mt-1 leading-none font-medium">
+                    Professional Price Action Logic
                   </span>
                 </div>
-                <div className="flex flex-col items-start px-2 py-1 bg-slate-900/40 rounded-lg border border-white/5">
-                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">BTCUSD (CRYPTO)</span>
-                  <span className="font-bold flex items-center gap-1 text-white tabular-nums mt-0.5">
-                    ${btcPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    <span className={priceDirections.btc === "up" ? "text-emerald-400 font-black animate-pulse" : "text-rose-400 font-black animate-pulse"}>
-                      {priceDirections.btc === "up" ? "▲" : "▼"}
-                    </span>
+
+                {/* CARD 3 */}
+                <div className="flex flex-col items-start p-2.5 bg-black/50 border border-blue-500/15 hover:border-blue-500/40 rounded-xl transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">CONFIRMATIONS</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs mt-0.5 leading-tight tracking-tight">
+                    27 Rule Engine
+                  </span>
+                  <span className="text-[8px] text-slate-400 mt-1 leading-none font-medium">
+                    Multi-layer Validation System
+                  </span>
+                </div>
+
+                {/* CARD 4 */}
+                <div className="flex flex-col items-start p-2.5 bg-black/50 border border-blue-500/15 hover:border-blue-500/40 rounded-xl transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.5)]">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">SUPPORTED MARKETS</span>
+                  <span className="font-bold text-white text-[11px] sm:text-xs mt-0.5 leading-tight tracking-tight">
+                    Forex • Crypto • Indices • Commodities
+                  </span>
+                  <span className="text-[8px] text-slate-400 mt-1 leading-none font-medium">
+                    Universal Chart Compatibility
                   </span>
                 </div>
               </div>
@@ -390,10 +406,10 @@ export default function LandingPage({ onGetStarted, onLogin, navigate }: Landing
                 <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-[9px] font-mono bg-slate-900/95 border border-white/10 backdrop-blur-md px-3.5 py-2.5 rounded-xl text-slate-300 shadow-xl shadow-black/30">
                   <span className="flex items-center gap-2 font-bold tracking-wide">
                     <Activity className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-                    XAUUSD & Forex Candlestick Telemetry
+                    Universal Multi-Asset Chart Analysis
                   </span>
-                  <span className="text-blue-400 font-black px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded">
-                    ACTIVE CONFIRMATION MATRIX
+                  <span className="text-blue-400 font-black px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded uppercase tracking-wider">
+                    INSTITUTIONAL ANALYSIS ENGINE
                   </span>
                 </div>
               </div>

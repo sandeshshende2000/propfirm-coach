@@ -47,7 +47,7 @@ export default function ManageSubscription({
           setDbPlans(data);
         }
       })
-      .catch(err => console.error("Error loading plans:", err));
+      .catch(err => console.warn("Notice loading plans:", err));
   }, []);
 
   const handlePaypalInitiate = async (plan: "pro" | "elite") => {

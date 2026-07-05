@@ -5,7 +5,7 @@ import { UserProfile, PropChallenge, TradeJournalEntry, AIAnalysisRecord, ChatMe
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey) && typeof window !== 'undefined' && localStorage.getItem("TRADEMODEAI_BYPASS_SUPABASE") !== "true";
 
 export const supabase = isSupabaseConfigured 
   ? createClient(supabaseUrl, supabaseAnonKey)
@@ -293,9 +293,9 @@ class RealTimeDatabase {
   }
 
   // Mutators
-  saveProfile(profile: UserProfile, isDemo: boolean = false) {
+  saveProfile(profile: UserProfile, isDemo: boolean = false, syncToDb: boolean = true) {
     localStorage.setItem(this.getStorageKey("PROFILE", isDemo), JSON.stringify(profile));
-    if (isSupabaseConfigured && !isDemo && profile.id) {
+    if (isSupabaseConfigured && !isDemo && profile.id && syncToDb) {
       // Sync in background to Supabase
       const dbProfile = {
         id: profile.id,
@@ -328,51 +328,18 @@ class RealTimeDatabase {
     this.notify();
   }
 
-  saveChallenges(challenges: PropChallenge[], isDemo: boolean = false) {
+  saveChallenges(challenges: PropChallenge[], isDemo: boolean = false, syncToDb: boolean = true) {
     localStorage.setItem(this.getStorageKey("CHALLENGES", isDemo), JSON.stringify(challenges));
-    if (isSupabaseConfigured && !isDemo) {
-      const userId = this.getUserId(false);
-      if (userId) {
-        const dbChallenges = challenges.map(c => ({
-          ...c,
-          user_id: userId,
-          updated_at: new Date()
-        }));
-        supabase?.from("challenges").upsert(dbChallenges).then();
-      }
-    }
     this.notify();
   }
 
-  saveTrades(trades: TradeJournalEntry[], isDemo: boolean = false) {
+  saveTrades(trades: TradeJournalEntry[], isDemo: boolean = false, syncToDb: boolean = true) {
     localStorage.setItem(this.getStorageKey("TRADES", isDemo), JSON.stringify(trades));
-    if (isSupabaseConfigured && !isDemo) {
-      const userId = this.getUserId(false);
-      if (userId) {
-        const dbTrades = trades.map(t => ({
-          ...t,
-          user_id: userId,
-          updated_at: new Date()
-        }));
-        supabase?.from("trades").upsert(dbTrades).then();
-      }
-    }
     this.notify();
   }
 
-  saveAnalyses(analyses: AIAnalysisRecord[], isDemo: boolean = false) {
+  saveAnalyses(analyses: AIAnalysisRecord[], isDemo: boolean = false, syncToDb: boolean = true) {
     localStorage.setItem(this.getStorageKey("ANALYSES", isDemo), JSON.stringify(analyses));
-    if (isSupabaseConfigured && !isDemo) {
-      const userId = this.getUserId(false);
-      if (userId) {
-        const dbAnalyses = analyses.map(a => ({
-          ...a,
-          user_id: userId,
-          updated_at: new Date()
-        }));
-        supabase?.from("analyses").upsert(dbAnalyses).then();
-      }
-    }
     this.notify();
   }
 

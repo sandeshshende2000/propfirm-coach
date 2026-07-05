@@ -263,7 +263,7 @@ export default function AIAnalysis({
         // Do not deduct a credit or save any fallback analysis on API or server errors!
       }
     } catch (e) {
-      console.error(e);
+      console.warn("Connection issue occurred:", e);
       setWarningMessage("Analysis failed due to a connection timeout or network issue. No credit has been deducted.");
       // Do not deduct a credit or save any fallback analysis on exception!
     } finally {
@@ -986,7 +986,7 @@ export default function AIAnalysis({
                   <div className="space-y-4 text-xs">
                     <div>
                       <h4 className="font-bold text-white text-sm">Coach Core Assessment Feedback</h4>
-                      <p className="text-slate-300 mt-1 leading-relaxed leading-relaxed">{result.coachCommentary.feedback}</p>
+                      <p className="text-slate-300 mt-1 leading-relaxed whitespace-pre-wrap">{result.coachCommentary.feedback}</p>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-4 pt-3 border-t border-slate-900/40">

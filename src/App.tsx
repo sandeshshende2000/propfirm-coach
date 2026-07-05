@@ -17,7 +17,11 @@ import {
   UserCheck,
   AlertTriangle,
   Layers,
-  RefreshCw
+  RefreshCw,
+  Database,
+  Check,
+  Copy,
+  AlertCircle
 } from "lucide-react";
 
 // Types & Data
@@ -177,6 +181,16 @@ export default function App() {
     return saved ? JSON.parse(saved) : false; // Default to false (Real Account)
   });
 
+  const [isDataLoading, setIsDataLoading] = useState<boolean>(() => {
+    const savedDemo = localStorage.getItem("TRADEMODEAI_IS_DEMO");
+    const isDemo = savedDemo ? JSON.parse(savedDemo) : false;
+    const isAuth = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
+    return isAuth && !isDemo;
+  });
+
+  const [supabaseLoadError, setSupabaseLoadError] = useState<any>(null);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
+
   // Core Global States
   const [profile, setProfile] = useState<UserProfile>(() => db.getProfile(isDemoMode));
   const [challenges, setChallenges] = useState<PropChallenge[]>(() => db.getChallenges(isDemoMode));
@@ -190,7 +204,10 @@ export default function App() {
 
   // 1. Listen for Supabase session on mount & react to Auth state changes
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) return;
+    if (!isSupabaseConfigured || !supabase) {
+      setIsDataLoading(false);
+      return;
+    }
 
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -205,6 +222,7 @@ export default function App() {
         const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
         setIsAuthenticated(false);
         localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+        setIsDataLoading(false);
         if (wasAuthenticated) {
           // Session expired
           navigate("/login");
@@ -240,6 +258,7 @@ export default function App() {
         const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
         setIsAuthenticated(false);
         localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+        setIsDataLoading(false);
         if (event === "SIGNED_OUT") {
           navigate("/");
         } else if (wasAuthenticated) {
@@ -259,23 +278,41 @@ export default function App() {
     if (!isAuthenticated || !isSupabaseConfigured || !supabase) return;
 
     const loadSupabaseData = async () => {
+      setIsDataLoading(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          setIsDataLoading(false);
+          return;
+        }
 
         // Fetch user profile
-        const { data: profileData } = await supabase
+        let { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", user.id)
           .maybeSingle();
 
+        if (profileError) {
+          console.warn("Issue fetching profile from Supabase:", profileError);
+          setSupabaseLoadError(profileError);
+          setIsDataLoading(false);
+          return;
+        }
+
         // Fetch user payment history
-        const { data: paymentsData } = await supabase
+        const { data: paymentsData, error: paymentsError } = await supabase
           .from("payments")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false });
+
+        if (paymentsError) {
+          console.warn("Issue fetching payments from Supabase:", paymentsError);
+          setSupabaseLoadError(paymentsError);
+          setIsDataLoading(false);
+          return;
+        }
 
         let mappedPayments: any[] = [];
         if (paymentsData) {
@@ -298,7 +335,7 @@ export default function App() {
               ? JSON.parse(profileData.payment_history)
               : profileData.payment_history;
           } catch (e) {
-            console.error("Error parsing payment_history from Supabase:", e);
+            console.warn("Issue parsing payment_history from Supabase:", e);
           }
         }
 
@@ -385,7 +422,7 @@ export default function App() {
             payment_history: []
           };
           // Insert the new profile into Supabase
-          await supabase.from("profiles").insert({
+          const { error: insertError } = await supabase.from("profiles").insert({
             id: user.id,
             name: mappedProfile.name,
             email: mappedProfile.email,
@@ -410,71 +447,78 @@ export default function App() {
             payment_history: JSON.stringify([]),
             updated_at: new Date()
           });
+
+          if (insertError) {
+            console.warn("Profile insertion failed, checking if profile actually exists:", insertError);
+            // Re-fetch to guarantee we use the authoritative database record rather than wiping it
+            const { data: retryProfile, error: retryError } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", user.id)
+              .maybeSingle();
+
+            if (retryProfile) {
+              const loadedPlan = retryProfile.plan || retryProfile.Plan || "FREE_TRIAL";
+              const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
+              const remainingCredits = retryProfile.credits_remaining !== undefined ? retryProfile.credits_remaining : 3;
+              mappedProfile = {
+                id: user.id,
+                name: retryProfile.name || user.user_metadata?.name || "Trader",
+                email: retryProfile.email || user.email || "",
+                subscriptionPlan: subPlanMapped,
+                accountBalance: retryProfile.accountBalance || 100000,
+                joinDate: retryProfile.joinDate || todayDate,
+                creditsUsed: retryProfile.creditsUsed || 0,
+                creditsLimit: retryProfile.creditsLimit || 3,
+                nextResetDate: retryProfile.expiry_date || retryProfile.nextResetDate || "N/A",
+                paymentFailed: !!retryProfile.paymentFailed,
+                role: retryProfile.role || "user",
+                plan_name: retryProfile.plan_name || "FREE TRIAL",
+                subscription_status: retryProfile.subscription_status || "active",
+                free_analyses_remaining: remainingCredits,
+                credits_remaining: remainingCredits,
+                total_credits: retryProfile.total_credits || 3,
+                plan: loadedPlan as any,
+                credits: remainingCredits,
+                price: retryProfile.price !== undefined ? retryProfile.price : 0,
+                activation_date: retryProfile.activation_date || retryProfile.joinDate || "",
+                expiry_date: retryProfile.expiry_date || "Never",
+                payment_history: parsedHistory
+              };
+            } else {
+              console.warn("Warning: Cannot insert or retrieve user profile. Proceeding with local fallback to prevent data blocking.");
+              setIsDataLoading(false);
+              return;
+            }
+          }
         }
 
         setProfile(mappedProfile);
-        db.saveProfile(mappedProfile, false);
+        db.saveProfile(mappedProfile, false, false); // Local cache only, never trigger redundant Supabase writes
 
-        // Fetch user challenges
-        const { data: challengesData } = await supabase
-          .from("challenges")
-          .select("*")
-          .eq("user_id", user.id);
-
-        let mappedChallenges: PropChallenge[] = [];
-        if (challengesData && challengesData.length > 0) {
-          mappedChallenges = challengesData.map((row: any) => ({
-            id: row.id,
-            name: row.name || "Custom Challenge",
-            firmType: row.firmType || row.firm_type || "Custom",
-            accountSize: row.accountSize || row.account_size || 100000,
-            dailyLossLimitPercent: row.dailyLossLimitPercent || row.daily_loss_limit_percent || 5,
-            maxDrawdownPercent: row.maxDrawdownPercent || row.max_drawdown_percent || 10,
-            targetProfitPercent: row.targetProfitPercent || row.target_profit_percent || 8,
-            currentProfit: row.currentProfit || row.current_profit || 0,
-            currentLossToday: row.currentLossToday || row.current_loss_today || 0,
-            daysTraded: row.daysTraded || row.days_traded || 1,
-            startDate: row.startDate || row.start_date || new Date().toISOString().split("T")[0],
-            status: row.status || "ACTIVE"
-          }));
-        }
+        // Fetch user challenges - Bypassed/Disabled to remove database dependency on missing challenges table
+        let mappedChallenges: PropChallenge[] = db.getChallenges(false);
         setChallenges(mappedChallenges);
-        db.saveChallenges(mappedChallenges, false);
+        db.saveChallenges(mappedChallenges, false, false); // Local cache only
 
-        // Fetch user trades
-        const { data: tradesData } = await supabase
-          .from("trades")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("date", { ascending: false });
-
-        let mappedTrades: TradeJournalEntry[] = [];
-        if (tradesData && tradesData.length > 0) {
-          mappedTrades = tradesData.map((row: any) => ({
-            id: row.id,
-            pair: row.pair || row.asset || "UNKNOWN",
-            entryPrice: row.entryPrice || row.entry_price || 0,
-            exitPrice: row.exitPrice || row.exit_price || 0,
-            size: row.size || row.lot_size || 1.0,
-            type: row.type || "BUY",
-            status: row.status || "WIN",
-            profit: row.profit || 0,
-            session: row.session || "",
-            date: row.date || new Date().toISOString().split("T")[0],
-            notes: row.notes || "",
-            emotions: typeof row.emotions === "string" ? JSON.parse(row.emotions) : row.emotions || [],
-            mistakes: typeof row.mistakes === "string" ? JSON.parse(row.mistakes) : row.mistakes || []
-          }));
-        }
+        // Fetch user trades - Bypassed/Disabled to run only with local storage
+        let mappedTrades: TradeJournalEntry[] = db.getTrades(false);
         setTrades(mappedTrades);
-        db.saveTrades(mappedTrades, false);
+        db.saveTrades(mappedTrades, false, false); // Local cache only
 
         // Fetch user analysis history
-        const { data: historyData } = await supabase
+        const { data: historyData, error: historyError } = await supabase
           .from("analysis_history")
           .select("*")
           .eq("user_id", user.id)
           .order("dateTime", { ascending: false });
+
+        if (historyError) {
+          console.warn("Issue fetching analysis history from Supabase:", historyError);
+          setSupabaseLoadError(historyError);
+          setIsDataLoading(false);
+          return;
+        }
 
         let mappedAnalyses: AIAnalysisRecord[] = [];
         if (historyData) {
@@ -492,10 +536,12 @@ export default function App() {
           }));
         }
         setAnalyses(mappedAnalyses);
-        db.saveAnalyses(mappedAnalyses, false);
+        db.saveAnalyses(mappedAnalyses, false, false); // Local cache only
 
       } catch (e) {
-        console.error("Error loading Supabase data:", e);
+        console.warn("Issue loading Supabase data:", e);
+      } finally {
+        setIsDataLoading(false);
       }
     };
 
@@ -943,20 +989,33 @@ export default function App() {
                 };
                 const targetPath = pathMap[item.label] || "/dashboard";
                 const isSelected = tab === item.label;
+                const isDisabled = item.label === "Challenge Tracker";
                 return (
                   <button
                     key={item.label}
                     onClick={() => {
-                      navigate(targetPath);
+                      if (!isDisabled) {
+                        navigate(targetPath);
+                      }
                     }}
-                    className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-xs font-bold font-mono transition-all uppercase cursor-pointer ${
-                      isSelected
-                        ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-lg shadow-blue-500/5"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/30"
+                    disabled={isDisabled}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-bold font-mono transition-all uppercase ${
+                      isDisabled
+                        ? "opacity-40 cursor-not-allowed text-slate-500 border border-transparent"
+                        : isSelected
+                        ? "bg-blue-500/10 text-blue-400 border border-blue-500/20 shadow-lg shadow-blue-500/5 cursor-pointer"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/30 border border-transparent cursor-pointer"
                     }`}
                   >
-                    {item.icon}
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3.5">
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </div>
+                    {isDisabled && (
+                      <span className="text-[9px] bg-red-500/10 text-red-400 border border-red-500/20 px-1.5 py-0.5 rounded uppercase font-black tracking-widest scale-90">
+                        Offline
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -1024,24 +1083,25 @@ export default function App() {
             <select
               value={tab}
               onChange={(e) => {
+                const val = e.target.value;
+                if (val === "Challenge Tracker") return;
                 const map: Record<string, string> = {
                   "Dashboard": "/dashboard",
                   "AI Analysis": "/analysis",
                   "Trade Journal": "/journal",
-                  "Challenge Tracker": "/challenge",
                   "Risk Calculator": "/calculator",
                   "Performance Analytics": "/analytics",
                   "Manage Subscription": "/subscription",
                   "Account Settings": "/settings",
                   "Admin Panel": "/admin",
                 };
-                navigate(map[e.target.value] || "/dashboard");
+                navigate(map[val] || "/dashboard");
               }}
               className="bg-slate-900 border border-slate-800 rounded text-xs font-bold text-slate-200 px-2 py-1 outline-none font-mono"
             >
               {navItems.map((item) => (
-                <option key={item.label} value={item.label}>
-                  {item.label.toUpperCase()}
+                <option key={item.label} value={item.label} disabled={item.label === "Challenge Tracker"}>
+                  {item.label.toUpperCase()} {item.label === "Challenge Tracker" ? "(OFFLINE)" : ""}
                 </option>
               ))}
             </select>
@@ -1270,6 +1330,242 @@ export default function App() {
       </div>
     );
   };
+
+  const sqlSchema = `-- TRADEMODEAI DATABASE CONFIGURATION SCRIPT
+-- RUN THIS IN YOUR SUPABASE SQL EDITOR TO PROVISION ALL NECESSARY TABLES
+
+-- 1. Create profiles table
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  name TEXT,
+  email TEXT,
+  "Plan" TEXT DEFAULT 'FREE_TRIAL',
+  plan_name TEXT DEFAULT 'FREE TRIAL',
+  "subscriptionPlan" TEXT DEFAULT 'Free',
+  "Credits" INTEGER DEFAULT 3,
+  credits_remaining INTEGER DEFAULT 3,
+  total_credits INTEGER DEFAULT 3,
+  free_analyses_remaining INTEGER DEFAULT 3,
+  subscription_status TEXT DEFAULT 'active',
+  "nextResetDate" TEXT DEFAULT 'Never',
+  "paymentFailed" BOOLEAN DEFAULT false,
+  "joinDate" TEXT,
+  "creditsUsed" INTEGER DEFAULT 0,
+  "creditsLimit" INTEGER DEFAULT 3,
+  plan TEXT DEFAULT 'FREE_TRIAL',
+  credits INTEGER DEFAULT 3,
+  price NUMERIC DEFAULT 0,
+  activation_date TEXT,
+  expiry_date TEXT DEFAULT 'Never',
+  payment_history TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 2. Create analysis_history table
+CREATE TABLE IF NOT EXISTS public.analysis_history (
+  id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  pair TEXT,
+  asset TEXT,
+  "accountSize" NUMERIC,
+  "riskPercent" NUMERIC,
+  session TEXT,
+  result TEXT,
+  "dateTime" TEXT,
+  "creditsUsed" INTEGER DEFAULT 1,
+  status TEXT DEFAULT 'Success',
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 3. Create payments table
+CREATE TABLE IF NOT EXISTS public.payments (
+  id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  order_id TEXT,
+  selected_plan TEXT,
+  amount NUMERIC,
+  status TEXT,
+  transaction_id TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 4. Create subscriptions table
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  plan_name TEXT,
+  status TEXT,
+  price NUMERIC,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 5. Enable Row Level Security (RLS) on all tables
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.analysis_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- 6. Create policies to allow users to view/edit their own data only
+DROP POLICY IF EXISTS "Users can manage their own profile" ON public.profiles;
+CREATE POLICY "Users can manage their own profile" ON public.profiles FOR ALL TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can manage their own analyses" ON public.analysis_history;
+CREATE POLICY "Users can manage their own analyses" ON public.analysis_history FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own payments" ON public.payments;
+CREATE POLICY "Users can manage their own payments" ON public.payments FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own subscriptions" ON public.subscriptions;
+CREATE POLICY "Users can manage their own subscriptions" ON public.subscriptions FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+`;
+
+  if (false) {
+    const errorMsg = supabaseLoadError.message || JSON.stringify(supabaseLoadError);
+    
+    const handleBypassSupabase = () => {
+      localStorage.setItem("TRADEMODEAI_BYPASS_SUPABASE", "true");
+      window.location.reload();
+    };
+
+    const handleCopySql = () => {
+      navigator.clipboard.writeText(sqlSchema);
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 3000);
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-4 md:p-8">
+        <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200">
+          {/* Left panel: Info & Actions */}
+          <div className="p-6 md:p-8 flex-1 flex flex-col justify-between space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20">
+                  <Database className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-mono font-bold tracking-tight text-slate-100">SUPABASE SYNC FAULT</h3>
+                  <p className="text-xs font-mono text-red-400 font-medium">TABLES NOT PROVISIONED YET</p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-950 border border-red-500/10 rounded-xl space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                  <span className="text-xs font-mono font-semibold text-red-300">Database Response:</span>
+                </div>
+                <p className="text-[11px] font-mono text-slate-400 leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-32">
+                  {errorMsg}
+                </p>
+              </div>
+
+              <div className="space-y-3 text-xs text-slate-400 leading-relaxed">
+                <p className="font-semibold text-slate-300">How to quickly resolve this:</p>
+                <ul className="list-decimal list-inside space-y-2 font-mono text-[11px]">
+                  <li>Go to your <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300 font-semibold">Supabase Dashboard</a>.</li>
+                  <li>Open the <span className="text-slate-200 font-semibold">SQL Editor</span> tab on the left navigation rail.</li>
+                  <li>Click <span className="text-slate-200 font-semibold">New Query</span>, paste the schema script, and click <span className="text-slate-200 font-semibold">Run</span>.</li>
+                  <li>Provision is completed in under 2 seconds.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <button
+                onClick={handleBypassSupabase}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-slate-950 font-black font-mono text-xs py-3 px-4 rounded-xl flex items-center justify-center gap-2 group transition-all cursor-pointer shadow-lg shadow-blue-600/10 active:scale-[0.99]"
+              >
+                <ShieldCheck className="w-4 h-4 text-slate-950" />
+                BYPASS & RUN OFFLINE (LOCAL FALLBACK)
+              </button>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 font-mono text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  RETRY CONNECTION
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="bg-slate-950 hover:bg-rose-950/20 border border-slate-800 hover:border-rose-900/30 text-rose-400 font-mono text-xs py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-[0.98]"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  LOG OUT
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Right panel: SQL Script viewer */}
+          <div className="bg-slate-950 border-t md:border-t-0 md:border-l border-slate-800 p-6 md:p-8 flex-1 flex flex-col justify-between max-w-md space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono font-bold tracking-wider text-slate-400">POSTGRESQL DDL SCHEMA</span>
+                <button
+                  onClick={handleCopySql}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-black border transition-all flex items-center gap-1.5 cursor-pointer ${
+                    copiedSql 
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                      : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800"
+                  }`}
+                >
+                  {copiedSql ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      COPIED!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-300" />
+                      COPY SCHEMA
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-[10px] font-mono text-slate-500 leading-normal">
+                This query creates all tables (<span className="text-slate-400">profiles, challenges, trades, analysis_history, payments, subscriptions</span>) and establishes Row Level Security (RLS) policies.
+              </p>
+            </div>
+
+            <div className="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-hidden relative group h-[250px] md:h-auto">
+              <pre className="text-[9px] font-mono text-slate-400 overflow-y-auto absolute inset-4 leading-relaxed selection:bg-blue-500 selection:text-slate-950 select-all scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent">
+                {sqlSchema}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated && isDataLoading && !isDemoMode) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-100 p-6">
+        <div className="relative flex flex-col items-center max-w-sm text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center shadow-xl shadow-blue-500/15 animate-bounce">
+            <Brain className="w-9 h-9 text-slate-950" />
+          </div>
+          
+          <div className="space-y-2">
+            <h3 className="text-sm font-mono text-slate-400 uppercase tracking-widest font-black flex items-center justify-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+              AUTHORITATIVE LINK
+            </h3>
+            <p className="text-xs font-mono text-slate-500">
+              Synchronizing account state with TradeModeAI database...
+            </p>
+          </div>
+          
+          <div className="w-48 h-1 bg-slate-900 rounded-full overflow-hidden relative">
+            <div className="absolute top-0 left-0 h-full w-1/3 bg-blue-500 rounded-full animate-pulse" style={{ animationDuration: '1.5s' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <SubscriptionProvider

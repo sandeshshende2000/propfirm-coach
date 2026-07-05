@@ -58,7 +58,7 @@ export default function DashboardOverview({
           setDbPlans(data);
         }
       })
-      .catch(err => console.error("Error loading plans:", err));
+      .catch(err => console.warn("Notice loading plans:", err));
   }, []);
 
   // Real-time calculated statistics based strictly on active user journal:
