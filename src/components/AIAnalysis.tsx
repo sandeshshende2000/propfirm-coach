@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft, Search, Star, ChevronDown, Clock } from "lucide-react";
+import { Sparkles, Brain, Upload, Check, AlertTriangle, Play, RefreshCw, Layers, ShieldCheck, Target, TrendingUp, HelpCircle, AlertCircle, CreditCard, Coins, ArrowLeft, Search, Star, ChevronDown, Clock, X } from "lucide-react";
 import { AIAnalysisResult, AIAnalysisRecord, UserProfile } from "../types";
 import { DEMO_ANALYSIS_CHANNELS } from "../data";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useAnalysis } from "../context/AnalysisContext";
 
 const CATEGORIZED_ASSETS: { [category: string]: { symbol: string; name: string }[] } = {
   "Metals": [
@@ -153,10 +154,25 @@ export default function AIAnalysis({
   const [m15Chart, setM15Chart] = useState<string | null>(null);
   const [m5Chart, setM5Chart] = useState<string | null>(null);
 
-  // Status logs
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  // Consume Global Analysis Context
+  const { currentJob, status, startAnalysis, cancelAnalysis, clearJob } = useAnalysis();
+  const isAnalyzing = status === "RUNNING";
+
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [result, setResult] = useState<AIAnalysisResult | null>(null);
+
+  // Sync with global completed/failed states
+  useEffect(() => {
+    if (status === "COMPLETED" && currentJob?.result) {
+      setResult(currentJob.result);
+      setWarningMessage(null);
+    } else if (status === "FAILED" && currentJob?.error) {
+      setWarningMessage(currentJob.error);
+    } else if (status === "CANCELLED") {
+      setResult(null);
+      setWarningMessage("Analysis was explicitly cancelled by user.");
+    }
+  }, [status, currentJob]);
 
   // Utility to read files into base64 strings
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
@@ -191,6 +207,7 @@ export default function AIAnalysis({
     setM15Chart(null);
     setM5Chart(null);
     setResult(null);
+    clearJob();
   };
 
   const remainingCredits = profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed);
@@ -213,59 +230,22 @@ export default function AIAnalysis({
       return;
     }
 
-    setIsAnalyzing(true);
     setWarningMessage(null);
 
     try {
-      const response = await fetch("/api/analyze-trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pair,
-          accountSize,
-          riskPercent,
-          session,
-          h1Chart,
-          m15Chart,
-          m5Chart,
-          profile,
-          userId: profile?.id,
-        }),
+      await startAnalysis({
+        pair,
+        accountSize,
+        riskPercent,
+        session,
+        h1Chart,
+        m15Chart,
+        m5Chart,
+        userId: profile?.id,
       });
-
-      if (response.ok) {
-        const { result: analysisResult, updatedProfile } = await response.json();
-        setResult(analysisResult);
-        
-        // Update user profile credits
-        if (onUpdateProfile && updatedProfile) {
-          onUpdateProfile(updatedProfile);
-        }
-
-        // Save completed analysis to database with detailed fields
-        if (onAddAnalysis) {
-          onAddAnalysis({
-            pair,
-            accountSize,
-            riskPercent,
-            session,
-            result: analysisResult,
-            dateTime: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            creditsUsed: 1,
-            status: "Success",
-          } as any); // cast to any to allow extra fields
-        }
-      } else {
-        const err = await response.json();
-        setWarningMessage(err.error || "Server was unable to complete the analysis blueprint.");
-        // Do not deduct a credit or save any fallback analysis on API or server errors!
-      }
-    } catch (e) {
-      console.warn("Connection issue occurred:", e);
-      setWarningMessage("Analysis failed due to a connection timeout or network issue. No credit has been deducted.");
-      // Do not deduct a credit or save any fallback analysis on exception!
-    } finally {
-      setIsAnalyzing(false);
+    } catch (e: any) {
+      console.warn("Analysis start warning:", e);
+      setWarningMessage(e.message || "An unexpected issue occurred while initiating analysis.");
     }
   };
 
@@ -725,10 +705,42 @@ export default function AIAnalysis({
               <div className="flex gap-1 mt-6 text-[10px] text-emerald-400 font-mono animate-pulse uppercase tracking-widest">
                 <span>Scanning H1 trends...</span>
               </div>
+              <button
+                onClick={cancelAnalysis}
+                className="mt-8 px-4 py-2 border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Cancel Analysis
+              </button>
             </div>
           )}
 
-          {!isAnalyzing && !result && (
+          {!isAnalyzing && status === "FAILED" && (
+            <div className="border border-rose-950/40 rounded-2xl bg-rose-950/5 p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
+              <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mb-4 animate-pulse">
+                <AlertCircle className="w-7 h-7" />
+              </div>
+              <h3 className="text-white font-bold text-lg">Analysis Blueprint Failed</h3>
+              <p className="text-rose-300 text-xs max-w-sm mt-2 leading-relaxed font-mono">
+                {currentJob?.error || "Server was unable to complete the analysis blueprint."}
+              </p>
+              <div className="flex gap-3 mt-8">
+                <button
+                  onClick={clearJob}
+                  className="px-4 py-2 border border-slate-800 hover:bg-slate-900 text-slate-300 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Dismiss
+                </button>
+                <button
+                  onClick={executeAnalysis}
+                  className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:opacity-90 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/10 cursor-pointer"
+                >
+                  Retry Analysis
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!isAnalyzing && status !== "FAILED" && !result && (
             <div className="border-2 border-dashed border-slate-900 rounded-2xl bg-slate-950/10 p-12 text-center flex flex-col items-center justify-center min-h-[400px]">
               <div className="w-14 h-14 rounded-full bg-slate-900/60 flex items-center justify-center text-slate-500 mb-4 border border-slate-800">
                 <Sparkles className="w-6 h-6" />

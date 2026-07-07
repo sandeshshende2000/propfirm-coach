@@ -21,7 +21,8 @@ import {
   Database,
   Check,
   Copy,
-  AlertCircle
+  AlertCircle,
+  CheckCircle
 } from "lucide-react";
 
 // Types & Data
@@ -40,6 +41,7 @@ import AccountSettings from "./components/AccountSettings";
 import AdminPanel from "./components/AdminPanel";
 import ManageSubscription from "./components/ManageSubscription";
 import { SubscriptionProvider } from "./context/SubscriptionContext";
+import { AnalysisProvider, useAnalysis } from "./context/AnalysisContext";
 import PayPalCheckoutModal from "./components/PayPalCheckoutModal";
 
 // Dynamic routing page components
@@ -58,6 +60,73 @@ import {
   RiskDisclaimerPage,
   SupportPage
 } from "./components/PageComponents";
+
+function PortalAnalysisIndicator({ navigate }: { navigate: (path: string) => void }) {
+  const { currentJob, status, notificationDismissed, setNotificationDismissed } = useAnalysis();
+  const currentPath = window.location.pathname;
+
+  // We only show indicators if the user is NOT on the analysis page
+  if (currentPath === "/analysis") {
+    return null;
+  }
+
+  return (
+    <>
+      {/* 1. Global "AI Analysis Running..." Indicator */}
+      {status === "RUNNING" && (
+        <div 
+          onClick={() => navigate("/analysis")}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 bg-slate-900 border border-emerald-500/35 text-white rounded-xl shadow-2xl hover:border-emerald-400 transition-all cursor-pointer group animate-bounce duration-1000"
+        >
+          <div className="relative">
+            <div className="w-6 h-6 rounded-full border-2 border-slate-800 border-t-emerald-500 animate-spin" />
+            <Brain className="w-3 h-3 text-emerald-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+          </div>
+          <div className="text-left font-mono">
+            <span className="block text-xs font-bold text-slate-100 group-hover:text-emerald-400 transition-colors uppercase">
+              AI Analysis Running...
+            </span>
+            <span className="block text-[9px] text-slate-400">
+              Analyzing multi-timeframe candle structures
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Global "Analysis Completed" Notification */}
+      {status === "COMPLETED" && !notificationDismissed && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 bg-slate-900 border border-blue-500/40 text-white rounded-xl shadow-2xl max-w-sm animate-slide-in" style={{ animationDuration: "0.3s" }}>
+          <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+            <CheckCircle className="w-4 h-4 text-blue-400" />
+          </div>
+          <div 
+            onClick={() => {
+              setNotificationDismissed(true);
+              navigate("/analysis");
+            }}
+            className="text-left cursor-pointer flex-1 group"
+          >
+            <span className="block text-xs font-black text-slate-100 group-hover:text-blue-400 transition-colors uppercase tracking-wider font-mono">
+              Analysis Completed
+            </span>
+            <span className="block text-[10px] text-slate-400 mt-0.5 leading-relaxed font-sans">
+              Institutional-grade multi-timeframe report is ready for <span className="text-slate-100 font-bold">{currentJob?.pair}</span>. Click to view.
+            </span>
+          </div>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setNotificationDismissed(true);
+            }}
+            className="p-1 hover:bg-slate-850 rounded-lg text-slate-500 hover:text-slate-300 transition-colors cursor-pointer animate-pulse"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
 
 export default function App() {
   // Navigation states: 'Landing' | 'Portal'
@@ -651,6 +720,17 @@ export default function App() {
     db.saveProfile(updated, isDemoMode);
   };
 
+  const handleDeleteAccount = async () => {
+    if (isSupabaseConfigured && supabase && profile.id) {
+      try {
+        await supabase.from("profiles").delete().eq("id", profile.id);
+      } catch (err) {
+        console.warn("Notice: supabase profile row deletion failed", err);
+      }
+    }
+    await handleLogout();
+  };
+
   const handleUpdateFullProfile = (updated: UserProfile) => {
     setProfile(updated);
     db.saveProfile(updated, isDemoMode);
@@ -1115,7 +1195,13 @@ export default function App() {
             )}
 
             {tab === "Account Settings" && (
-              <AccountSettings profile={profile} onUpdateProfile={handleUpdateProfile} />
+              <AccountSettings 
+                profile={profile} 
+                onUpdateProfile={handleUpdateProfile} 
+                navigate={navigate}
+                onLogout={handleLogout}
+                onDeleteAccount={handleDeleteAccount}
+              />
             )}
 
             {tab === "Admin Panel" && <AdminPanel />}
@@ -1482,10 +1568,16 @@ CREATE POLICY "Users can manage their own subscriptions" ON public.subscriptions
       setIsDemoMode={setIsDemoMode}
       navigate={navigate}
     >
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-slate-900 transition-colors">
-        {renderRoute()}
-        <PayPalCheckoutModal />
-      </div>
+      <AnalysisProvider
+        analyses={analyses}
+        onAddAnalysis={handleAddAnalysis}
+      >
+        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500 selection:text-slate-900 transition-colors">
+          {renderRoute()}
+          <PayPalCheckoutModal />
+          <PortalAnalysisIndicator navigate={navigate} />
+        </div>
+      </AnalysisProvider>
     </SubscriptionProvider>
   );
 }
