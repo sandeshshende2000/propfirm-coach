@@ -33,7 +33,8 @@ export default function ManageSubscription({
     feedbackMsg,
     setFeedbackMsg,
     initiatePayPalCheckout,
-    selectedPlanId
+    selectedPlanId,
+    isIndia
   } = useSubscription();
 
   const [dbPlans, setDbPlans] = useState<any[]>([]);

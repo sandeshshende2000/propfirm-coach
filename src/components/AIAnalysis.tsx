@@ -72,7 +72,7 @@ export default function AIAnalysis({
   onUpdateProfile,
   onNavigateToTab
 }: AIAnalysisProps) {
-  const { profile, initiatePayPalCheckout, isVerifying, isPaypalProcessing } = useSubscription();
+  const { profile, initiatePayPalCheckout, isVerifying, isPaypalProcessing, isIndia } = useSubscription();
   // Config state
   const [pair, setPair] = useState(() => localStorage.getItem("last_selected_pair") || "XAUUSD");
   const [accountSize, setAccountSize] = useState(100000);

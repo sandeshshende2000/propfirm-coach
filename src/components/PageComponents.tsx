@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   Check, 
   HelpCircle, 
@@ -829,6 +829,13 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
   const [errorMsg, setErrorMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    if (localStorage.getItem("TRADEMODEAI_VERIFICATION_PENDING") === "true") {
+      setErrorMsg("Please verify your email address to activate your TradeModeAI account.");
+      localStorage.removeItem("TRADEMODEAI_VERIFICATION_PENDING");
+    }
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
@@ -844,6 +851,14 @@ export function LoginPage({ navigate, onLoginSuccess }: RouteProps) {
 
         if (error) {
           setErrorMsg(error.message);
+          setIsLoading(false);
+          return;
+        }
+
+        if (data.user && !data.user.email_confirmed_at) {
+          // Block login by signing out immediately
+          await supabase.auth.signOut();
+          setErrorMsg("Please verify your email address to activate your TradeModeAI account.");
           setIsLoading(false);
           return;
         }
@@ -993,11 +1008,13 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [terms, setTerms] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
+    setSuccessMsg("");
 
     if (!name.trim()) {
       setErrorMsg("Full Name is required.");
@@ -1020,11 +1037,45 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
       return;
     }
 
+    // Email Normalization & Validation
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setErrorMsg("Please enter a valid email address.");
+      return;
+    }
+
+    // Block disposable email domains
+    const domain = cleanEmail.split("@")[1] || "";
+    const disposableKeywords = [
+      "temp-mail", "tempmail", "mailinator", "guerrillamail", "yopmail", 
+      "10minutemail", "throwawaymail", "fakemail", "moakt", "sharklasers", 
+      "maildrop", "dispostable", "getairmail", "boun.cr", "crazymailing", 
+      "mailnesia", "mailcatch"
+    ];
+    if (disposableKeywords.some(keyword => domain.includes(keyword))) {
+      setErrorMsg("Temporary or disposable email addresses are not supported. Please use a permanent email address.");
+      return;
+    }
+
     if (isSupabaseConfigured && supabase) {
       setIsLoading(true);
       try {
+        // Query profiles table to check if account already exists with the normalized email
+        const { data: existingProfiles, error: checkError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("email", cleanEmail);
+
+        if (existingProfiles && existingProfiles.length > 0) {
+          setErrorMsg("An account already exists with this email. Please log in instead.");
+          setIsLoading(false);
+          return;
+        }
+
+        // Proceed to Supabase signUp
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: cleanEmail,
           password,
           options: {
             data: {
@@ -1039,17 +1090,34 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
           return;
         }
 
-        if (onSignupSuccess) {
-          onSignupSuccess(name, email, "Free");
+        // If user already exists in Auth, identities will be an empty array
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setErrorMsg("An account already exists with this email. Please log in instead.");
+          setIsLoading(false);
+          return;
         }
+
+        setSuccessMsg("Please verify your email address to activate your TradeModeAI account.");
       } catch (err: any) {
         setErrorMsg(err.message || "An authentication error occurred.");
       } finally {
         setIsLoading(false);
       }
     } else {
+      // Local Bypass Mode Flow
+      const localProfile = localStorage.getItem("TRADEMODEAI_REAL_PROFILE");
+      if (localProfile) {
+        try {
+          const prof = JSON.parse(localProfile);
+          if (prof.email && prof.email.trim().toLowerCase() === cleanEmail) {
+            setErrorMsg("An account already exists with this email. Please log in instead.");
+            return;
+          }
+        } catch (e) {}
+      }
+
       if (onSignupSuccess) {
-        onSignupSuccess(name, email, "Free");
+        onSignupSuccess(name, cleanEmail, "Free");
       }
     }
   };
@@ -1077,74 +1145,91 @@ export function SignupPage({ navigate, onSignupSuccess }: RouteProps) {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Full Name</label>
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Marcus Vance"
-                className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
-              />
+          {successMsg ? (
+            <div className="space-y-6 py-4 text-center">
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 font-mono text-xs leading-relaxed uppercase tracking-wider">
+                {successMsg}
+              </div>
+              <p className="text-[11px] font-mono text-slate-400 leading-relaxed">
+                Check your inbox for a confirmation email. Once verified, you can access your portal.
+              </p>
+              <button
+                onClick={() => navigate("/login")}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <span>Proceed to Login</span>
+              </button>
             </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Marcus Vance"
+                  className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Email Address</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="marcus@trademodeai.com"
-                className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="marcus@trademodeai.com"
+                  className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Password</label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Confirm Password</label>
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-mono uppercase text-slate-500 font-black">Confirm Password</label>
+                <input
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2 text-xs outline-none focus:border-blue-500 font-mono text-slate-200"
+                />
+              </div>
 
-            <div className="flex items-center gap-2 pt-1 font-mono text-[10px] text-slate-400">
-              <input
-                type="checkbox"
-                required
-                checked={terms}
-                onChange={(e) => setTerms(e.target.checked)}
-                className="rounded border-slate-850 bg-slate-950 text-blue-500 outline-none cursor-pointer"
-              />
-              <span>I agree to Terms & Conditions</span>
-            </div>
+              <div className="flex items-center gap-2 pt-1 font-mono text-[10px] text-slate-400">
+                <input
+                  type="checkbox"
+                  required
+                  checked={terms}
+                  onChange={(e) => setTerms(e.target.checked)}
+                  className="rounded border-slate-850 bg-slate-950 text-blue-500 outline-none cursor-pointer"
+                />
+                <span>I agree to Terms & Conditions</span>
+              </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4 disabled:opacity-50"
-            >
-              <span>{isLoading ? "Provisioning portal account..." : "Create Free Account"}</span>
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-sky-400 hover:from-blue-400 hover:to-sky-300 text-slate-950 font-black font-mono text-xs uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-4 disabled:opacity-50"
+              >
+                <span>{isLoading ? "Provisioning portal account..." : "Create Free Account"}</span>
+              </button>
+            </form>
+          )}
 
           <p className="text-center font-mono text-[10px] text-slate-500 mt-6">
             Already configured? <button onClick={() => navigate("/login")} className="text-blue-400 hover:underline">Access my portal</button>

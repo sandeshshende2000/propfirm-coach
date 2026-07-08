@@ -29,6 +29,19 @@ interface SubscriptionContextType {
   isDemoMode: boolean;
   setIsDemoMode: (val: boolean) => void;
   navigate: (path: string) => void;
+  
+  // Razorpay Additions
+  isIndia: boolean;
+  isRazorpaySdkReady: boolean;
+  razorpayOrderId: string | null;
+  razorpayPriceInr: number;
+  razorpayKeyId: string;
+  captureRazorpayPayment: (options?: {
+    paymentId?: string;
+    signature?: string;
+    status?: "SUCCESS" | "FAILED";
+  }) => Promise<void>;
+  cancelRazorpayPayment: () => void;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
@@ -70,6 +83,33 @@ export function SubscriptionProvider({
   const [paypalClientId, setPaypalClientId] = useState("");
   const [sdkReady, setSdkReady] = useState(false);
 
+  // Razorpay state properties
+  const [isIndia, setIsIndia] = useState(false);
+  const [countryCode, setCountryCode] = useState("");
+  const [razorpayKeyId, setRazorpayKeyId] = useState("");
+  const [isRazorpaySdkReady, setIsRazorpaySdkReady] = useState(false);
+  const [razorpayOrderId, setRazorpayOrderId] = useState<string | null>(null);
+  const [razorpayPriceInr, setRazorpayPriceInr] = useState(0);
+
+  // Geo-IP and timezone evaluation for Billing Country routing
+  useEffect(() => {
+    const isIndiaTZ = Intl.DateTimeFormat().resolvedOptions().timeZone === "Asia/Kolkata";
+    setIsIndia(isIndiaTZ);
+
+    fetch("https://ipapi.co/json/")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.country_code) {
+          const code = data.country_code.toUpperCase();
+          setCountryCode(code);
+          setIsIndia(code === "IN" || isIndiaTZ);
+        }
+      })
+      .catch((err) => {
+        console.warn("Issue fetching Geo-IP dynamic country routing, relying on timezone:", err);
+      });
+  }, []);
+
   // Sync internal state when initialProfile changes from App.tsx
   useEffect(() => {
     setProfile(initialProfile);
@@ -96,6 +136,18 @@ export function SubscriptionProvider({
       .catch((err) => console.warn("Issue fetching PayPal config in context:", err));
   }, []);
 
+  // Fetch Razorpay Config on mount
+  useEffect(() => {
+    fetch("/api/razorpay/config")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.keyId) {
+          setRazorpayKeyId(data.keyId);
+        }
+      })
+      .catch((err) => console.warn("Issue fetching Razorpay config in context:", err));
+  }, []);
+
   // Dynamically load PayPal JS SDK
   useEffect(() => {
     if (!paypalClientId) return;
@@ -119,6 +171,28 @@ export function SubscriptionProvider({
       setSdkReady(true);
     }
   }, [paypalClientId]);
+
+  // Dynamically load Razorpay SDK
+  useEffect(() => {
+    const scriptId = "razorpay-checkout-sdk";
+    let script = document.getElementById(scriptId) as HTMLScriptElement;
+
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => {
+        setIsRazorpaySdkReady(true);
+      };
+      script.onerror = () => {
+        console.warn("Could not load Razorpay script, continuing in simulator mode.");
+      };
+      document.body.appendChild(script);
+    } else {
+      setIsRazorpaySdkReady(true);
+    }
+  }, []);
 
   // Generate a mock tx ID when the modal opens
   useEffect(() => {
@@ -232,44 +306,150 @@ export function SubscriptionProvider({
     return null;
   };
 
-  // 1. Create PayPal Order
+  // 1. Create PayPal/Razorpay Order based on billing country routing
   const initiatePayPalCheckout = async (plan: "pro" | "elite") => {
     const targetPlanId = plan === "elite" ? "plan-elite" : "plan-pro";
     setSelectedPlanId(targetPlanId);
     setFeedbackMsg(null);
     setIsPaypalProcessing(true);
 
-    try {
-      const response = await fetch("/api/paypal/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          planId: targetPlanId,
-          userId: profile.id || "guest",
-          currentProfile: profile
-        })
-      });
+    if (isIndia) {
+      try {
+        console.log("Country is India: Routing checkout through Razorpay...");
+        const response = await fetch("/api/razorpay/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId: targetPlanId,
+            userId: profile.id || "guest",
+            currentProfile: profile
+          })
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (response.ok && data.orderId) {
-        setPaypalOrderId(data.orderId);
-        // 2. Open PayPal Checkout modal overlay directly!
-        setShowPaypalModal(true);
-      } else {
+        if (response.ok && data.orderId) {
+          setRazorpayOrderId(data.orderId);
+          setRazorpayPriceInr(data.priceInr);
+          
+          const win = window as any;
+          if (!win.Razorpay) {
+            console.error("Razorpay SDK is not loaded on window object.");
+            setFeedbackMsg({
+              type: "error",
+              text: "Razorpay Checkout script not loaded. Please refresh the page."
+            });
+            setIsPaypalProcessing(false);
+            return;
+          }
+
+          // Launch official Razorpay Checkout experience
+          const isRealOrder = data.orderId && !data.orderId.startsWith("RZP-ORD-");
+          
+          const options: any = {
+            key: razorpayKeyId || "rzp_test_uG6fF6vEub94Uq",
+            amount: data.priceInr * 100, // paise
+            currency: "INR",
+            name: "TradeModeAI Ltd",
+            description: `${plan === "elite" ? "ELITE" : "PRO"} Trader License`,
+            image: "https://ai.studio/build/favicon.ico",
+            prefill: {
+              name: profile.email ? profile.email.split("@")[0] : "Trader",
+              email: profile.email || "sandeshshende2000@gmail.com",
+              contact: "9999999999"
+            },
+            theme: {
+              color: "#6366f1"
+            },
+            modal: {
+              ondismiss: function () {
+                console.log("Razorpay checkout was dismissed by the user.");
+                setFeedbackMsg({
+                  type: "error",
+                  text: "Checkout flow cancelled by customer."
+                });
+                setIsPaypalProcessing(false);
+              }
+            }
+          };
+
+          if (isRealOrder) {
+            options.order_id = data.orderId;
+            options.handler = async function (resp: any) {
+              console.log("Razorpay authorization successful with real order. Capturing...");
+              await captureRazorpayPayment({
+                paymentId: resp.razorpay_payment_id,
+                signature: resp.razorpay_signature
+              }, data.orderId, targetPlanId);
+            };
+          } else {
+            options.handler = async function (resp: any) {
+              console.log("Razorpay authorization successful with fallback. Capturing...");
+              await captureRazorpayPayment({
+                paymentId: resp.razorpay_payment_id,
+                status: "SUCCESS"
+              }, data.orderId, targetPlanId);
+            };
+          }
+
+          const rzp = new win.Razorpay(options);
+          rzp.on("payment.failed", function (resp: any) {
+            console.error("Razorpay payment failed:", resp?.error || resp);
+            setFeedbackMsg({
+              type: "error",
+              text: resp?.error?.description || resp?.error?.reason || "Razorpay transaction failed."
+            });
+            setIsPaypalProcessing(false);
+          });
+          rzp.open();
+        } else {
+          setFeedbackMsg({
+            type: "error",
+            text: data.error || "Razorpay Order creation failed."
+          });
+          setIsPaypalProcessing(false);
+        }
+      } catch (err) {
+        console.warn("Razorpay checkout warning:", err);
         setFeedbackMsg({
           type: "error",
-          text: data.error || "Order creation failed. Please check setup."
+          text: "Failed to connect to Razorpay gateway."
         });
+        setIsPaypalProcessing(false);
       }
-    } catch (err) {
-      console.warn("PayPal Initiation warning:", err);
-      setFeedbackMsg({
-        type: "error",
-        text: "Failed to connect to PayPal gateway. Check dev settings."
-      });
-    } finally {
-      setIsPaypalProcessing(false);
+    } else {
+      try {
+        const response = await fetch("/api/paypal/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            planId: targetPlanId,
+            userId: profile.id || "guest",
+            currentProfile: profile
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.orderId) {
+          setPaypalOrderId(data.orderId);
+          // Open PayPal Checkout modal overlay directly!
+          setShowPaypalModal(true);
+        } else {
+          setFeedbackMsg({
+            type: "error",
+            text: data.error || "Order creation failed. Please check setup."
+          });
+        }
+      } catch (err) {
+        console.warn("PayPal Initiation warning:", err);
+        setFeedbackMsg({
+          type: "error",
+          text: "Failed to connect to PayPal gateway. Check dev settings."
+        });
+      } finally {
+        setIsPaypalProcessing(false);
+      }
     }
   };
 
@@ -347,6 +527,76 @@ export function SubscriptionProvider({
     });
   };
 
+  // Razorpay Capture & Cancel Handlers
+  const captureRazorpayPayment = async (
+    options?: {
+      paymentId?: string;
+      signature?: string;
+      status?: "SUCCESS" | "FAILED";
+    },
+    overrideOrderId?: string,
+    overridePlanId?: string
+  ) => {
+    const activeOrderId = overrideOrderId || razorpayOrderId;
+    const activePlanId = overridePlanId || selectedPlanId;
+
+    if (!activeOrderId || !activePlanId) {
+      setFeedbackMsg({ type: "error", text: "No pending Razorpay order found to capture." });
+      return;
+    }
+
+    setIsVerifying(true);
+    setFeedbackMsg(null);
+
+    try {
+      const response = await fetch("/api/razorpay/capture-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: activeOrderId,
+          razorpayPaymentId: options?.paymentId || "pay_mock_" + Math.floor(Math.random() * 1000000000),
+          razorpaySignature: options?.signature || "sig_mock_" + Math.floor(Math.random() * 1000000000),
+          status: options?.status || "SUCCESS",
+          currentProfile: profile
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        updateProfileState(result.updatedProfile);
+        setShowPaypalModal(false);
+        setFeedbackMsg({
+          type: "success",
+          text: "Razorpay payment successfully processed! Enjoy your premium tools."
+        });
+        navigate("/dashboard");
+      } else {
+        setFeedbackMsg({
+          type: "error",
+          text: result.error || "Payment verification failed. Please try again."
+        });
+      }
+    } catch (err) {
+      console.warn("Razorpay Capture warning:", err);
+      setFeedbackMsg({
+        type: "error",
+        text: "Verification failed on subscription server."
+      });
+    } finally {
+      setIsVerifying(false);
+      setIsPaypalProcessing(false);
+    }
+  };
+
+  const cancelRazorpayPayment = () => {
+    setShowPaypalModal(false);
+    setFeedbackMsg({
+      type: "error",
+      text: "Checkout flow cancelled by customer."
+    });
+  };
+
   return (
     <SubscriptionContext.Provider
       value={{
@@ -370,7 +620,16 @@ export function SubscriptionProvider({
         setProfile,
         isDemoMode,
         setIsDemoMode,
-        navigate
+        navigate,
+        
+        // Razorpay bindings
+        isIndia,
+        isRazorpaySdkReady,
+        razorpayOrderId,
+        razorpayPriceInr,
+        razorpayKeyId,
+        captureRazorpayPayment,
+        cancelRazorpayPayment
       }}
     >
       {children}

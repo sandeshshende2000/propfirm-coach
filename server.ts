@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -1020,6 +1021,126 @@ app.get("/api/plans", (req, res) => {
     { id: "PRO", name: "PRO", price: 29, credits: 200 },
     { id: "ELITE", name: "ELITE", price: 49, credits: 500 }
   ]);
+});
+
+// 1.5.1.4 Razorpay Config, Create and Capture Endpoints
+app.get("/api/razorpay/config", (req, res) => {
+  res.json({
+    keyId: process.env.RAZORPAY_KEY_ID || ""
+  });
+});
+
+app.post("/api/razorpay/create-order", async (req, res) => {
+  const { planId, userId, currentProfile } = req.body;
+  if (!planId) {
+    return res.status(400).json({ error: "Selected Plan is required" });
+  }
+
+  const isElite = planId === "plan-elite";
+  const amountUsd = isElite ? 49 : 29;
+  const amountInr = isElite ? 4599 : 2499;
+  const amountPaise = amountInr * 100; // Razorpay expects amount in paise (1 INR = 100 paise)
+
+  // Generate unique receipt/order ID
+  let orderId = "RZP-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  let rzpOrderId = orderId;
+
+  if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+    try {
+      console.log(`Contacting Razorpay REST API to create order for ${planId} (${amountInr} INR)...`);
+      const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString("base64");
+      const rzpResponse = await fetch("https://api.razorpay.com/v1/orders", {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          amount: amountPaise,
+          currency: "INR",
+          receipt: orderId
+        })
+      });
+
+      if (!rzpResponse.ok) {
+        const errText = await rzpResponse.text();
+        throw new Error(`Failed to create Razorpay order: ${errText}`);
+      }
+
+      const rzpOrder = await rzpResponse.json();
+      rzpOrderId = rzpOrder.id;
+      console.log("Successfully created real Razorpay Order:", rzpOrderId);
+    } catch (err: any) {
+      console.error("Failed to create real Razorpay Order, falling back to simulated:", err);
+    }
+  }
+
+  // Store pending order in DB (Supabase/Memory) - store USD amount to match PayPal logic
+  await createPendingOrder(rzpOrderId, userId, planId, amountUsd);
+
+  res.json({
+    orderId: rzpOrderId,
+    priceInr: amountInr,
+    priceUsd: amountUsd,
+    currency: "INR"
+  });
+});
+
+app.post("/api/razorpay/capture-payment", async (req, res) => {
+  const { orderId, razorpayPaymentId, razorpaySignature, status, currentProfile } = req.body;
+  const userId = currentProfile?.id || "guest";
+
+  try {
+    const pendingOrder = await getPendingOrder(orderId);
+    if (!pendingOrder) {
+      return res.status(400).json({ error: "Order ID must match the pending order." });
+    }
+
+    if (pendingOrder.status === "Completed") {
+      return res.status(400).json({ error: "The payment has already been processed." });
+    }
+
+    if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+      // Real HMAC-SHA256 signature verification for production security
+      if (!razorpayPaymentId || !razorpaySignature) {
+        await updateOrderStatus(orderId, "Failed");
+        return res.status(400).json({ error: "Missing payment ID or signature for verification." });
+      }
+
+      const body = orderId + "|" + razorpayPaymentId;
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(body.toString())
+        .digest("hex");
+
+      if (expectedSignature !== razorpaySignature) {
+        await updateOrderStatus(orderId, "Failed");
+        return res.status(400).json({ error: "Razorpay signature verification failed. Tampering detected." });
+      }
+    } else {
+      // Simulation mode
+      if (status === "FAILED") {
+        await updateOrderStatus(orderId, "Failed");
+        return res.status(400).json({ error: "Payment failed during Razorpay transaction." });
+      }
+    }
+
+    // Update Order to Completed and activate subscription
+    const finalTxId = razorpayPaymentId || "RZP-TXN-" + Date.now();
+    await updateOrderStatus(orderId, "Completed", finalTxId);
+    const updatedProfile = await activateUserSubscription(userId, pendingOrder.selected_plan, currentProfile);
+
+    return res.json({
+      success: true,
+      updatedProfile,
+      message: "Razorpay subscription payment fully verified and activated on the server."
+    });
+
+  } catch (error: any) {
+    console.error("Server Razorpay Verification Error:", error);
+    await updateOrderStatus(orderId, "Failed");
+    return res.status(500).json({ error: `Razorpay Server Error: ${error?.message || error}` });
+  }
 });
 
 // 1.5.1.5 PayPal - Client ID Config Endpoint

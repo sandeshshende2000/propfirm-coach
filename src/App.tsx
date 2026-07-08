@@ -273,6 +273,16 @@ export default function App() {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        if (!session.user.email_confirmed_at) {
+          // Unverified! Sign out and redirect to login
+          await supabase.auth.signOut();
+          setIsAuthenticated(false);
+          localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+          localStorage.setItem("TRADEMODEAI_VERIFICATION_PENDING", "true");
+          setIsDataLoading(false);
+          navigate("/login");
+          return;
+        }
         setIsAuthenticated(true);
         localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
         const publicAuthPaths = ["/", "/login", "/signup"];
@@ -306,8 +316,18 @@ export default function App() {
     };
     checkSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
+        if (!session.user.email_confirmed_at) {
+          // Unverified! Sign out and redirect to login
+          await supabase.auth.signOut();
+          setIsAuthenticated(false);
+          localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
+          localStorage.setItem("TRADEMODEAI_VERIFICATION_PENDING", "true");
+          setIsDataLoading(false);
+          navigate("/login");
+          return;
+        }
         setIsAuthenticated(true);
         localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
         const publicAuthPaths = ["/", "/login", "/signup"];
@@ -1402,6 +1422,9 @@ ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 -- 6. Create policies to allow users to view/edit their own data only
 DROP POLICY IF EXISTS "Users can manage their own profile" ON public.profiles;
 CREATE POLICY "Users can manage their own profile" ON public.profiles FOR ALL TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Allow public read of profiles email" ON public.profiles;
+CREATE POLICY "Allow public read of profiles email" ON public.profiles FOR SELECT TO public USING (true);
 
 DROP POLICY IF EXISTS "Users can manage their own analyses" ON public.analysis_history;
 CREATE POLICY "Users can manage their own analyses" ON public.analysis_history FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

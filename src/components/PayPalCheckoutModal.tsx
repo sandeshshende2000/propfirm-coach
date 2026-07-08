@@ -1,5 +1,5 @@
-import React, { useEffect } from "react";
-import { Lock, RefreshCw, Check, AlertTriangle } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Lock, RefreshCw, Check, AlertTriangle, CreditCard, Wallet, Landmark, Smartphone, ChevronRight } from "lucide-react";
 import { useSubscription } from "../context/SubscriptionContext";
 
 export default function PayPalCheckoutModal() {
@@ -8,16 +8,28 @@ export default function PayPalCheckoutModal() {
     showPaypalModal,
     selectedPlanId,
     paypalOrderId,
-    paypalTxId,
     sdkReady,
     paypalClientId,
     isVerifying,
     capturePayPalPayment,
-    cancelPayPalPayment
+    cancelPayPalPayment,
+
+    // Razorpay additions
+    isIndia,
+    isRazorpaySdkReady,
+    razorpayOrderId,
+    razorpayPriceInr,
+    razorpayKeyId,
+    captureRazorpayPayment,
+    cancelRazorpayPayment
   } = useSubscription();
 
-  // Handle standard PayPal buttons rendering inside the modal
+  const [activeTab, setActiveTab] = useState<"upi" | "card" | "netbanking" | "wallet">("upi");
+  const [selectedSimMethod, setSelectedSimMethod] = useState<string>("Instant UPI Transfer");
+
+  // Handle standard PayPal buttons rendering inside the modal (Only if not India)
   useEffect(() => {
+    if (isIndia) return;
     if (!sdkReady || !paypalClientId || !showPaypalModal || !selectedPlanId) return;
 
     const containerId = "global-paypal-button-container";
@@ -51,11 +63,12 @@ export default function PayPalCheckoutModal() {
     } catch (e) {
       console.warn("Notice rendering PayPal buttons in Global PayPalCheckoutModal:", e);
     }
-  }, [sdkReady, selectedPlanId, paypalClientId, showPaypalModal, paypalOrderId]);
+  }, [sdkReady, selectedPlanId, paypalClientId, showPaypalModal, paypalOrderId, isIndia]);
 
+  if (isIndia) return null;
   if (!showPaypalModal) return null;
 
-  const planPrice = selectedPlanId === "plan-elite" ? 49 : 29;
+  const planPriceUsd = selectedPlanId === "plan-elite" ? 49 : 29;
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
@@ -79,7 +92,7 @@ export default function PayPalCheckoutModal() {
         </div>
 
         <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-          <div className="border-b border-slate-800 pb-4">
+          <div className="border-b border-slate-850 pb-4">
             <p className="text-xs font-mono text-slate-400">Logged in account:</p>
             <p className="text-xs font-mono font-bold text-white mt-0.5">{profile.email || "sandeshshende2000@gmail.com"}</p>
           </div>
@@ -103,7 +116,7 @@ export default function PayPalCheckoutModal() {
             <div className="flex justify-between border-t border-slate-800 pt-3">
               <span className="text-slate-440 font-bold">Total Amount Expected:</span>
               <span className="text-amber-400 font-extrabold text-md">
-                ${planPrice}.00 USD
+                ${planPriceUsd}.00 USD
               </span>
             </div>
           </div>
@@ -139,7 +152,7 @@ export default function PayPalCheckoutModal() {
                 Authorize Normal Payment (Simulate Completed: SUCCESS)
               </button>
 
-              <div className="border-t border-slate-800 my-2 pt-2">
+              <div className="border-t border-slate-850 my-2 pt-2">
                 <p className="text-[10px] text-slate-450 font-mono leading-relaxed mb-2">
                   Choose any of the following to force validation triggers on the server and check error messages:
                 </p>
@@ -150,17 +163,17 @@ export default function PayPalCheckoutModal() {
                 <button
                   onClick={() => capturePayPalPayment({ overrideAmount: "1.00" })}
                   disabled={isVerifying}
-                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
+                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-440 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
                 >
                   <span className="font-bold">Mismatch Amount</span>
-                  <span className="text-[9px] text-slate-450 font-normal mt-1 leading-normal">Sends $1.00 instead of ${planPrice}.00</span>
+                  <span className="text-[9px] text-slate-450 font-normal mt-1 leading-normal">Sends $1.00 instead of ${planPriceUsd}.00</span>
                 </button>
 
                 {/* Option C: Tampered Currency */}
                 <button
                   onClick={() => capturePayPalPayment({ overrideCurrency: "EUR" })}
                   disabled={isVerifying}
-                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
+                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-440 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
                 >
                   <span className="font-bold">Mismatch Currency</span>
                   <span className="text-[9px] text-slate-450 font-normal mt-1 leading-normal">Sends EUR instead of USD</span>
@@ -170,7 +183,7 @@ export default function PayPalCheckoutModal() {
                 <button
                   onClick={() => capturePayPalPayment({ overrideStatus: "FAILED" })}
                   disabled={isVerifying}
-                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
+                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-440 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
                 >
                   <span className="font-bold">Failed Status</span>
                   <span className="text-[9px] text-slate-450 font-normal mt-1 leading-normal">Sends FAILED state</span>
@@ -180,7 +193,7 @@ export default function PayPalCheckoutModal() {
                 <button
                   onClick={() => capturePayPalPayment({ overrideTxId: "undefined" })}
                   disabled={isVerifying}
-                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
+                  className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-440 text-[10px] font-mono font-bold rounded-xl text-left transition-colors flex flex-col justify-between h-18 disabled:opacity-50"
                 >
                   <span className="font-bold">Invalid Tx ID</span>
                   <span className="text-[9px] text-slate-450 font-normal mt-1 leading-normal">Sends missing transaction reference</span>

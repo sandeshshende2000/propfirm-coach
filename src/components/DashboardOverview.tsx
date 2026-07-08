@@ -347,9 +347,12 @@ export default function DashboardOverview({
             <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-850/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="text-left space-y-1">
                 <span className="text-[9px] font-mono text-blue-400 font-bold block">TIER EXPIRED OR LOW LIMIT</span>
-                <p className="text-xs text-slate-300 font-bold">Ready to unlock commercial API quota levels?</p>
+                <p className="text-xs text-slate-200 font-bold">Unlock Institutional-Grade Analysis & Higher AI Credits</p>
+                <p className="text-[11px] text-slate-400 leading-normal mt-1">
+                  Upgrade your subscription to unlock more AI analyses, faster processing, and advanced institutional-grade trading reports.
+                </p>
               </div>
-              <div className="flex gap-2 w-full md:w-auto">
+              <div className="flex gap-2 w-full md:w-auto shrink-0">
                 <button
                   onClick={() => initiatePayPalCheckout("pro")}
                   className="flex-1 md:flex-initial px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-[10px] uppercase font-mono tracking-wider rounded-lg transition-all cursor-pointer shadow-lg"
@@ -367,47 +370,42 @@ export default function DashboardOverview({
           )}
         </div>
 
-        {/* Existing Billing Simulator Console preserved beautifully */}
+        {/* Supported Trading Platforms Section */}
         <div className="lg:col-span-1 bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between text-left space-y-4">
-          <h3 className="text-xs font-mono text-slate-400 uppercase tracking-widest flex items-center gap-1.5 font-bold">
-            <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-            Billing Simulation Engine
-          </h3>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Use the simulation console below to safely test the state engine behavior of renewal reset windows and payment failures.
-          </p>
-          <div className="flex flex-col gap-2 pt-2">
-            <button
-              onClick={() => {
-                if (onUpdateProfile) {
-                  onUpdateProfile({
-                    ...profile,
-                    creditsUsed: 0,
-                    paymentFailed: false
-                  });
-                }
-              }}
-              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono text-[10px] font-black uppercase rounded-lg active:scale-95 transition-all text-center cursor-pointer shadow-md shadow-emerald-500/5"
-            >
-              Simulate Monthly Renewal
-            </button>
-            <button
-              onClick={() => {
-                if (onUpdateProfile) {
-                  onUpdateProfile({
-                    ...profile,
-                    paymentFailed: !profile.paymentFailed
-                  });
-                }
-              }}
-              className={`w-full py-2.5 font-mono text-[10px] font-bold uppercase rounded-lg active:scale-95 transition-all text-center border cursor-pointer ${
-                profile.paymentFailed 
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' 
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-450 hover:bg-rose-500/20'
-              }`}
-            >
-              {profile.paymentFailed ? "Simulate Payment Restored" : "Simulate Payment Failure"}
-            </button>
+          <div>
+            <h3 className="text-xs font-mono text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 font-black">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-450 animate-pulse" />
+              SUPPORTED TRADING PLATFORMS
+            </h3>
+            <p className="text-[11px] text-slate-400 leading-relaxed mt-2.5">
+              Upload chart screenshots from your preferred trading platform. TradeModeAI analyzes price action directly from chart images and is not limited to any specific broker or charting software.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 py-1.5">
+            {[
+              "TradingView",
+              "MetaTrader 4 (MT4)",
+              "MetaTrader 5 (MT5)",
+              "cTrader",
+              "NinjaTrader",
+              "Thinkorswim",
+              "DXtrade",
+              "Match-Trader"
+            ].map((platform) => (
+              <span 
+                key={platform} 
+                className="bg-slate-950/50 border border-slate-850/85 rounded-lg px-2.5 py-1 text-[10px] font-black font-mono text-slate-300 hover:border-emerald-500/20 transition-colors cursor-default"
+              >
+                {platform}
+              </span>
+            ))}
+          </div>
+
+          <div className="pt-2.5 border-t border-slate-850/60">
+            <p className="text-[10px] font-mono text-slate-500 italic text-center">
+              "Any platform that provides clear candlestick charts is fully supported."
+            </p>
           </div>
         </div>
       </div>
