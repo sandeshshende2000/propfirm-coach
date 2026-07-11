@@ -115,13 +115,192 @@ export function SubscriptionProvider({
     setProfile(initialProfile);
   }, [initialProfile]);
 
-  // Handle local change notification
-  const updateProfileState = (updated: UserProfile) => {
-    setProfile(updated);
-    if (onProfileChange) {
-      onProfileChange(updated);
+  // Handle local change notification with delta-only merges to satisfy HOTFIX 4
+  const updateProfileState = async (updated: UserProfile) => {
+    // 1. Identify which fields are actually being changed compared to our current frontend profile state
+    const changedDeltas: any = {};
+    if (profile) {
+      const allKeys = Object.keys(updated);
+      for (const key of allKeys) {
+        if (JSON.stringify((updated as any)[key]) !== JSON.stringify((profile as any)[key])) {
+          changedDeltas[key] = (updated as any)[key];
+        }
+      }
+    } else {
+      // If there is no current profile, everything is a delta
+      Object.assign(changedDeltas, updated);
     }
-    db.saveProfile(updated, isDemoMode);
+
+    // 2. If running in Demo Mode or Supabase is not configured/authenticated, update locally and return
+    if (isDemoMode || !isSupabaseConfigured || !supabase || !updated.id) {
+      setProfile(updated);
+      if (onProfileChange) {
+        onProfileChange(updated);
+      }
+      db.saveProfile(updated, isDemoMode, false); // Local storage only
+      return;
+    }
+
+    try {
+      // 3. Fetch the latest authoritative profile from Supabase first
+      const { data: latestDbProfile, error: fetchError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", updated.id)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.warn("Could not fetch latest profile for delta merge, updating locally only:", fetchError);
+        setProfile(updated);
+        if (onProfileChange) onProfileChange(updated);
+        db.saveProfile(updated, isDemoMode, false);
+        return;
+      }
+
+      if (latestDbProfile) {
+        // Map the database profile back to UserProfile format so we can merge
+        const loadedPlan = latestDbProfile.plan || latestDbProfile.Plan || "FREE_TRIAL";
+        const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
+        const remainingCredits = latestDbProfile.credits_remaining !== undefined 
+          ? latestDbProfile.credits_remaining 
+          : (latestDbProfile.Credits !== undefined ? latestDbProfile.Credits : 3);
+        const usedCredits = latestDbProfile.creditsUsed !== undefined ? latestDbProfile.creditsUsed : (latestDbProfile.credits_used || 0);
+        const limitCredits = latestDbProfile.total_credits !== undefined ? latestDbProfile.total_credits : (latestDbProfile.creditsLimit || 3);
+        
+        let parsedHistory = [];
+        if (latestDbProfile.payment_history) {
+          try {
+            parsedHistory = typeof latestDbProfile.payment_history === "string"
+              ? JSON.parse(latestDbProfile.payment_history)
+              : latestDbProfile.payment_history;
+          } catch (e) {}
+        }
+
+        let parsedAnalysisHistory = [];
+        if (latestDbProfile.analysis_history) {
+          try {
+            parsedAnalysisHistory = typeof latestDbProfile.analysis_history === "string"
+              ? JSON.parse(latestDbProfile.analysis_history)
+              : latestDbProfile.analysis_history;
+          } catch (e) {}
+        }
+
+        const authoritativeProfile: UserProfile = {
+          id: latestDbProfile.id,
+          name: latestDbProfile.name || "Trader",
+          email: latestDbProfile.email || "",
+          subscriptionPlan: subPlanMapped,
+          accountBalance: latestDbProfile.accountBalance || 100000,
+          joinDate: latestDbProfile.joinDate || "",
+          creditsUsed: usedCredits,
+          creditsLimit: limitCredits,
+          nextResetDate: latestDbProfile.expiry_date || latestDbProfile.nextResetDate || "Never",
+          paymentFailed: !!latestDbProfile.paymentFailed,
+          role: latestDbProfile.role || "user",
+          plan_name: latestDbProfile.plan_name || "FREE TRIAL",
+          subscription_status: latestDbProfile.subscription_status || "active",
+          free_analyses_remaining: remainingCredits,
+          credits_remaining: remainingCredits,
+          total_credits: limitCredits,
+          plan: loadedPlan as any,
+          credits: remainingCredits,
+          price: latestDbProfile.price || 0,
+          activation_date: latestDbProfile.activation_date || "",
+          expiry_date: latestDbProfile.expiry_date || "Never",
+          payment_history: parsedHistory,
+          current_plan: latestDbProfile.current_plan || loadedPlan,
+          subscription_start_date: latestDbProfile.subscription_start_date || "",
+          subscription_end_date: latestDbProfile.subscription_end_date || "Never",
+          total_successful_analyses: latestDbProfile.total_successful_analyses || 0,
+          analysis_history: parsedAnalysisHistory
+        };
+
+        // Guard: if plan or credits are being changed to defaults by stale React state, ignore those deltas
+        const isPlanDowngrade = (authoritativeProfile.plan === "PRO" || authoritativeProfile.plan === "ELITE") && changedDeltas.plan === "FREE_TRIAL";
+        if (isPlanDowngrade) {
+          delete changedDeltas.plan;
+          delete changedDeltas.subscriptionPlan;
+          delete changedDeltas.plan_name;
+          delete changedDeltas.current_plan;
+          delete changedDeltas.credits_remaining;
+          delete changedDeltas.free_analyses_remaining;
+          delete changedDeltas.credits;
+          delete changedDeltas.total_credits;
+          delete changedDeltas.creditsLimit;
+        }
+
+        // Merge changedDeltas onto the authoritative database profile
+        const mergedProfile = {
+          ...authoritativeProfile,
+          ...changedDeltas
+        };
+
+        // Update local state and local storage
+        setProfile(mergedProfile);
+        if (onProfileChange) {
+          onProfileChange(mergedProfile);
+        }
+        db.saveProfile(mergedProfile, isDemoMode, false); // Update local cache
+
+        // Build the database payload with ONLY the changed deltas (or update fields on the profile)
+        const dbPayload: any = {
+          updated_at: new Date()
+        };
+
+        const deltaKeys = Object.keys(changedDeltas);
+        if (deltaKeys.length > 0) {
+          if (changedDeltas.name !== undefined) dbPayload.name = changedDeltas.name;
+          if (changedDeltas.email !== undefined) dbPayload.email = changedDeltas.email;
+          if (changedDeltas.plan !== undefined) {
+            dbPayload.plan = changedDeltas.plan;
+            dbPayload.Plan = changedDeltas.plan;
+          }
+          if (changedDeltas.subscriptionPlan !== undefined) dbPayload.subscriptionPlan = changedDeltas.subscriptionPlan;
+          if (changedDeltas.plan_name !== undefined) dbPayload.plan_name = changedDeltas.plan_name;
+          if (changedDeltas.current_plan !== undefined) dbPayload.current_plan = changedDeltas.current_plan;
+          if (changedDeltas.accountBalance !== undefined) dbPayload.accountBalance = changedDeltas.accountBalance;
+          if (changedDeltas.credits_remaining !== undefined) {
+            dbPayload.credits_remaining = changedDeltas.credits_remaining;
+            dbPayload.free_analyses_remaining = changedDeltas.credits_remaining;
+            dbPayload.credits = changedDeltas.credits_remaining;
+            dbPayload.Credits = changedDeltas.credits_remaining;
+          }
+          if (changedDeltas.total_credits !== undefined) {
+            dbPayload.total_credits = changedDeltas.total_credits;
+            dbPayload.creditsLimit = changedDeltas.total_credits;
+          }
+          if (changedDeltas.creditsUsed !== undefined) {
+            dbPayload.creditsUsed = changedDeltas.creditsUsed;
+            dbPayload.credits_used = changedDeltas.creditsUsed;
+          }
+          if (changedDeltas.paymentFailed !== undefined) dbPayload.paymentFailed = changedDeltas.paymentFailed;
+          if (changedDeltas.subscription_status !== undefined) dbPayload.subscription_status = changedDeltas.subscription_status;
+          if (changedDeltas.activation_date !== undefined) dbPayload.activation_date = changedDeltas.activation_date;
+          if (changedDeltas.expiry_date !== undefined) dbPayload.expiry_date = changedDeltas.expiry_date;
+          if (changedDeltas.payment_history !== undefined) dbPayload.payment_history = JSON.stringify(changedDeltas.payment_history);
+          if (changedDeltas.subscription_start_date !== undefined) dbPayload.subscription_start_date = changedDeltas.subscription_start_date;
+          if (changedDeltas.subscription_end_date !== undefined) dbPayload.subscription_end_date = changedDeltas.subscription_end_date;
+          if (changedDeltas.total_successful_analyses !== undefined) dbPayload.total_successful_analyses = changedDeltas.total_successful_analyses;
+          if (changedDeltas.analysis_history !== undefined) dbPayload.analysis_history = JSON.stringify(changedDeltas.analysis_history);
+
+          const payloadKeys = Object.keys(dbPayload).filter(k => k !== "updated_at");
+          if (payloadKeys.length > 0) {
+            await supabase.from("profiles").update(dbPayload).eq("id", updated.id);
+          }
+        }
+      } else {
+        // Fallback: If profile row not in database yet, save the full profile
+        setProfile(updated);
+        if (onProfileChange) onProfileChange(updated);
+        db.saveProfile(updated, isDemoMode, true);
+      }
+    } catch (e) {
+      console.warn("Error in updateProfileState delta write:", e);
+      // Fallback
+      setProfile(updated);
+      if (onProfileChange) onProfileChange(updated);
+      db.saveProfile(updated, isDemoMode, true);
+    }
   };
 
   // Fetch PayPal Config on mount
@@ -276,6 +455,17 @@ export function SubscriptionProvider({
           currentPlanName = "FREE TRIAL EXPIRED";
         }
 
+        let parsedAnalysisHistory: any[] = [];
+        if (profileData.analysis_history) {
+          try {
+            parsedAnalysisHistory = typeof profileData.analysis_history === "string"
+              ? JSON.parse(profileData.analysis_history)
+              : profileData.analysis_history;
+          } catch (e) {
+            console.warn("Could not parse profileData.analysis_history in refreshProfile:", e);
+          }
+        }
+
         const refreshed: UserProfile = {
           ...profile,
           subscriptionPlan: subPlanMapped,
@@ -292,7 +482,13 @@ export function SubscriptionProvider({
           price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
           activation_date: profileData.activation_date || profileData.joinDate || "",
           expiry_date: profileData.expiry_date || "Never",
-          payment_history: parsedHistory
+          payment_history: parsedHistory,
+          // Newly added fields for production persistence
+          current_plan: profileData.current_plan || loadedPlan,
+          subscription_start_date: profileData.subscription_start_date || profileData.activation_date || profileData.joinDate || "",
+          subscription_end_date: profileData.subscription_end_date || profileData.expiry_date || "Never",
+          total_successful_analyses: profileData.total_successful_analyses !== undefined ? profileData.total_successful_analyses : 0,
+          analysis_history: parsedAnalysisHistory
         };
 
         updateProfileState(refreshed);

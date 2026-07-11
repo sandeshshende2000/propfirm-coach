@@ -100,6 +100,11 @@ export interface UserProfile {
   credits?: number;
   price?: number;
   expiry_date?: string;
+  current_plan?: 'FREE_TRIAL' | 'PRO' | 'ELITE' | string;
+  subscription_start_date?: string;
+  subscription_end_date?: string;
+  total_successful_analyses?: number;
+  analysis_history?: any[];
   payment_history?: Array<{
     id: string;
     date: string;

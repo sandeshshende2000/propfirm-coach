@@ -366,18 +366,39 @@ export default function App() {
           return;
         }
 
-        // Fetch user profile
-        let { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
+        // Fetch user profile (with automatic retries for network/timeout/temporary database failures)
+        let profileData = null;
+        let profileError = null;
+        let retries = 3;
+        while (retries > 0) {
+          try {
+            const { data, error } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", user.id)
+              .maybeSingle();
+            
+            if (!error) {
+              profileData = data;
+              profileError = null;
+              break;
+            }
+            profileError = error;
+          } catch (err: any) {
+            profileError = err;
+          }
+          console.warn(`Temporary issue fetching profile from Supabase. Retrying... left: ${retries - 1}`, profileError);
+          retries--;
+          if (retries > 0) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+        }
 
         if (profileError) {
-          console.warn("Issue fetching profile from Supabase:", profileError);
+          console.error("Critical or temporary database failure after retries:", profileError);
           setSupabaseLoadError(profileError);
           setIsDataLoading(false);
-          return;
+          return; // STOP immediately. Never fall back to defaults or overwrite data.
         }
 
         // Fetch user payment history
@@ -451,6 +472,17 @@ export default function App() {
             currentPlanName = "FREE TRIAL EXPIRED";
           }
 
+          let parsedAnalysisHistory: any[] = [];
+          if (profileData.analysis_history) {
+            try {
+              parsedAnalysisHistory = typeof profileData.analysis_history === "string"
+                ? JSON.parse(profileData.analysis_history)
+                : profileData.analysis_history;
+            } catch (e) {
+              console.warn("Could not parse profileData.analysis_history:", e);
+            }
+          }
+
           mappedProfile = {
             id: user.id,
             name: profileData.name || profileData.name_display || user.user_metadata?.name || "Trader",
@@ -473,7 +505,13 @@ export default function App() {
             price: profileData.price !== undefined ? profileData.price : (loadedPlan === "PRO" ? 29 : (loadedPlan === "ELITE" ? 49 : 0)),
             activation_date: profileData.activation_date || profileData.joinDate || "",
             expiry_date: profileData.expiry_date || "Never",
-            payment_history: parsedHistory
+            payment_history: parsedHistory,
+            // Newly added fields for production persistence
+            current_plan: profileData.current_plan || loadedPlan,
+            subscription_start_date: profileData.subscription_start_date || profileData.activation_date || profileData.joinDate || "",
+            subscription_end_date: profileData.subscription_end_date || profileData.expiry_date || "Never",
+            total_successful_analyses: profileData.total_successful_analyses !== undefined ? profileData.total_successful_analyses : 0,
+            analysis_history: parsedAnalysisHistory
           };
         } else {
           // Profile does not exist yet (newly created account). Insert default profile with Status = ACTIVE!
@@ -499,7 +537,13 @@ export default function App() {
             price: 0,
             activation_date: todayDate,
             expiry_date: "Never",
-            payment_history: []
+            payment_history: [],
+            // Newly added fields for production persistence
+            current_plan: "FREE_TRIAL",
+            subscription_start_date: todayDate,
+            subscription_end_date: "Never",
+            total_successful_analyses: 0,
+            analysis_history: []
           };
           // Insert the new profile into Supabase
           const { error: insertError } = await supabase.from("profiles").insert({
@@ -525,6 +569,12 @@ export default function App() {
             activation_date: mappedProfile.joinDate,
             expiry_date: "Never",
             payment_history: JSON.stringify([]),
+            // Newly added fields for production persistence
+            current_plan: "FREE_TRIAL",
+            subscription_start_date: todayDate,
+            subscription_end_date: "Never",
+            total_successful_analyses: 0,
+            analysis_history: JSON.stringify([]),
             updated_at: new Date()
           });
 
@@ -541,6 +591,16 @@ export default function App() {
               const loadedPlan = retryProfile.plan || retryProfile.Plan || "FREE_TRIAL";
               const subPlanMapped = loadedPlan === "PRO" ? "Pro" : (loadedPlan === "ELITE" ? "Elite" : "Free");
               const remainingCredits = retryProfile.credits_remaining !== undefined ? retryProfile.credits_remaining : 3;
+              
+              let parsedAnalysisHistory: any[] = [];
+              if (retryProfile.analysis_history) {
+                try {
+                  parsedAnalysisHistory = typeof retryProfile.analysis_history === "string"
+                    ? JSON.parse(retryProfile.analysis_history)
+                    : retryProfile.analysis_history;
+                } catch (e) {}
+              }
+
               mappedProfile = {
                 id: user.id,
                 name: retryProfile.name || user.user_metadata?.name || "Trader",
@@ -563,7 +623,13 @@ export default function App() {
                 price: retryProfile.price !== undefined ? retryProfile.price : 0,
                 activation_date: retryProfile.activation_date || retryProfile.joinDate || "",
                 expiry_date: retryProfile.expiry_date || "Never",
-                payment_history: parsedHistory
+                payment_history: parsedHistory,
+                // Newly added fields for production persistence
+                current_plan: retryProfile.current_plan || loadedPlan,
+                subscription_start_date: retryProfile.subscription_start_date || retryProfile.activation_date || retryProfile.joinDate || "",
+                subscription_end_date: retryProfile.subscription_end_date || retryProfile.expiry_date || "Never",
+                total_successful_analyses: retryProfile.total_successful_analyses !== undefined ? retryProfile.total_successful_analyses : 0,
+                analysis_history: parsedAnalysisHistory
               };
             } else {
               console.warn("Warning: Cannot insert or retrieve user profile. Proceeding with local fallback to prevent data blocking.");
@@ -1371,6 +1437,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   activation_date TEXT,
   expiry_date TEXT DEFAULT 'Never',
   payment_history TEXT,
+  -- NEW FIELDS FOR COMMERCIAL SAAS PERSISTENCE --
+  current_plan TEXT DEFAULT 'FREE_TRIAL',
+  credits_used INTEGER DEFAULT 0,
+  subscription_start_date TEXT,
+  subscription_end_date TEXT,
+  total_successful_analyses INTEGER DEFAULT 0,
+  analysis_history TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

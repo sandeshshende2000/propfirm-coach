@@ -172,6 +172,35 @@ async function handleSupabaseDeductionAndHistory(
         // Deduct credit
         const newCredits = Math.max(0, currentCredits - 1);
         const newCreditsUsed = (dbProfile?.creditsUsed !== undefined ? dbProfile.creditsUsed : (dbProfile?.credits_used || 0)) + 1;
+        const newTotalSuccessfulAnalyses = (dbProfile?.total_successful_analyses !== undefined ? dbProfile.total_successful_analyses : 0) + 1;
+
+        // Create the analysis record item
+        const dateTimeStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const newAnalysisItem = {
+          id: "analysis-" + Date.now(),
+          user_id: userId,
+          pair: pair,
+          asset: pair,
+          account_size: accountSize,
+          risk_percent: riskPercent,
+          session: session,
+          result: resultData,
+          dateTime: dateTimeStr,
+          creditsUsed: 1,
+          status: "Success"
+        };
+
+        let existingHistory: any[] = [];
+        if (dbProfile?.analysis_history) {
+          try {
+            existingHistory = typeof dbProfile.analysis_history === "string"
+              ? JSON.parse(dbProfile.analysis_history)
+              : dbProfile.analysis_history;
+          } catch (e) {
+            console.warn("Could not parse profile analysis_history:", e);
+          }
+        }
+        const updatedHistory = [newAnalysisItem, ...existingHistory];
 
         // Update the database profiles table
         const { error: profileUpdateError } = await sSupabase
@@ -182,6 +211,8 @@ async function handleSupabaseDeductionAndHistory(
             free_analyses_remaining: newCredits,
             creditsUsed: newCreditsUsed,
             credits_used: newCreditsUsed,
+            total_successful_analyses: newTotalSuccessfulAnalyses,
+            analysis_history: JSON.stringify(updatedHistory),
             updated_at: new Date()
           })
           .eq("id", userId);
@@ -196,16 +227,16 @@ async function handleSupabaseDeductionAndHistory(
             credits_remaining: newCredits,
             free_analyses_remaining: newCredits,
             Credits: newCredits,
+            total_successful_analyses: newTotalSuccessfulAnalyses,
+            analysis_history: updatedHistory
           };
         }
 
         // 2. Insert into analysis_history table
-        const dateTimeStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        
         const { error: historyInsertError } = await sSupabase
           .from("analysis_history")
           .insert({
-            id: "analysis-" + Date.now(),
+            id: newAnalysisItem.id,
             user_id: userId,
             pair: pair,
             asset: pair,
@@ -225,6 +256,63 @@ async function handleSupabaseDeductionAndHistory(
         console.error("Supabase Database error during backend processing fallback:", dbErr);
       }
     } else {
+      // Ensure custom columns are synchronized even on RPC success
+      try {
+        const { data: dbProfile } = await sSupabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
+
+        if (dbProfile) {
+          const currentCredits = dbProfile.Credits !== undefined ? dbProfile.Credits : dbProfile.credits_remaining;
+          const newCredits = Math.max(0, (currentCredits !== undefined ? currentCredits : remainingCredits) - 1);
+          const newCreditsUsed = (dbProfile.creditsUsed !== undefined ? dbProfile.creditsUsed : (dbProfile.credits_used || 0)) + 1;
+          const newTotalSuccessfulAnalyses = (dbProfile.total_successful_analyses !== undefined ? dbProfile.total_successful_analyses : 0) + 1;
+
+          const dateTimeStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const newAnalysisItem = {
+            id: "analysis-" + Date.now(),
+            user_id: userId,
+            pair: pair,
+            asset: pair,
+            account_size: accountSize,
+            risk_percent: riskPercent,
+            session: session,
+            result: resultData,
+            dateTime: dateTimeStr,
+            creditsUsed: 1,
+            status: "Success"
+          };
+
+          let existingHistory: any[] = [];
+          if (dbProfile.analysis_history) {
+            try {
+              existingHistory = typeof dbProfile.analysis_history === "string"
+                ? JSON.parse(dbProfile.analysis_history)
+                : dbProfile.analysis_history;
+            } catch (e) {}
+          }
+          const updatedHistory = [newAnalysisItem, ...existingHistory];
+
+          await sSupabase
+            .from("profiles")
+            .update({
+              Credits: newCredits,
+              credits_remaining: newCredits,
+              free_analyses_remaining: newCredits,
+              creditsUsed: newCreditsUsed,
+              credits_used: newCreditsUsed,
+              total_successful_analyses: newTotalSuccessfulAnalyses,
+              analysis_history: JSON.stringify(updatedHistory),
+              updated_at: new Date()
+            })
+            .eq("id", userId);
+        }
+      } catch (syncErr) {
+        console.warn("Could not sync custom columns after RPC success:", syncErr);
+      }
+
       // If RPC succeeded, query the updated profile to return it to frontend
       try {
         const { data: updatedDbProfile } = await sSupabase
@@ -234,12 +322,28 @@ async function handleSupabaseDeductionAndHistory(
           .single();
 
         if (updatedDbProfile) {
+          let parsedHistory = [];
+          if (updatedDbProfile.analysis_history) {
+            try {
+              parsedHistory = typeof updatedDbProfile.analysis_history === "string"
+                ? JSON.parse(updatedDbProfile.analysis_history)
+                : updatedDbProfile.analysis_history;
+            } catch (e) {}
+          }
+
           updatedProfile = {
             ...profile,
             Credits: updatedDbProfile.Credits,
             credits_remaining: updatedDbProfile.credits_remaining !== undefined ? updatedDbProfile.credits_remaining : updatedDbProfile.Credits,
             free_analyses_remaining: updatedDbProfile.free_analyses_remaining !== undefined ? updatedDbProfile.free_analyses_remaining : updatedDbProfile.Credits,
             creditsUsed: updatedDbProfile.creditsUsed !== undefined ? updatedDbProfile.creditsUsed : updatedDbProfile.credits_used,
+            current_plan: updatedDbProfile.current_plan || updatedDbProfile.plan,
+            subscription_status: updatedDbProfile.subscription_status || "active",
+            total_credits: updatedDbProfile.total_credits !== undefined ? updatedDbProfile.total_credits : updatedDbProfile.Credits,
+            subscription_start_date: updatedDbProfile.subscription_start_date || updatedDbProfile.activation_date || updatedDbProfile.joinDate || "",
+            subscription_end_date: updatedDbProfile.subscription_end_date || updatedDbProfile.expiry_date || "Never",
+            total_successful_analyses: updatedDbProfile.total_successful_analyses !== undefined ? updatedDbProfile.total_successful_analyses : 0,
+            analysis_history: parsedHistory
           };
         }
       } catch (profileFetchErr) {
@@ -285,25 +389,104 @@ app.post("/api/analyze-trade", async (req, res) => {
     return res.status(400).json({ error: "All three screenshots (H1, M15, M5) are required for multi-frame analysis." });
   }
 
-  if (!profile) {
+  const sSupabase = getServerSupabase();
+  let dbProfile: any = null;
+
+  if (sSupabase && userId) {
+    try {
+      const { data, error } = await sSupabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Error fetching profile from Supabase for credit check:", error);
+        return res.status(500).json({ error: "Failed to verify available credits. Please try again." });
+      }
+      dbProfile = data;
+    } catch (err) {
+      console.error("Error during profile fetch:", err);
+      return res.status(500).json({ error: "Failed to verify available credits. Please try again." });
+    }
+  }
+
+  // Fallback to body profile if Supabase is not configured or user is in Demo mode
+  const currentProfile = dbProfile || profile;
+
+  if (!currentProfile) {
     return res.status(400).json({ error: "Missing profile information for credit validation." });
   }
 
-  const limit = profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit;
-  const remainingCredits = profile.credits_remaining !== undefined 
-    ? profile.credits_remaining 
-    : Math.max(0, limit - profile.creditsUsed);
+  const currentPlan = currentProfile.current_plan || currentProfile.plan || "FREE_TRIAL";
+  const subscriptionStatus = currentProfile.subscription_status || "active";
+  const limit = currentProfile.total_credits !== undefined 
+    ? currentProfile.total_credits 
+    : (currentProfile.creditsLimit !== undefined ? currentProfile.creditsLimit : 3);
 
-  if (profile.paymentFailed) {
-    return res.status(403).json({ error: "Subscription payment required. Renew your plan to continue using AI analysis." });
+  let creditsRemaining = currentProfile.credits_remaining !== undefined 
+    ? currentProfile.credits_remaining 
+    : (currentProfile.Credits !== undefined 
+        ? currentProfile.Credits 
+        : (currentProfile.free_analyses_remaining !== undefined ? currentProfile.free_analyses_remaining : Math.max(0, limit - (currentProfile.creditsUsed || 0))));
+
+  if (creditsRemaining <= 0) {
+    return res.status(403).json({
+      success: false,
+      code: "NO_CREDITS",
+      message: "Your available analysis credits have been exhausted. Please upgrade your subscription."
+    });
   }
 
-  if (remainingCredits <= 0) {
-    return res.status(403).json({ error: "Analysis blocked. You have used all available credits. Please upgrade your plan." });
+  if (currentProfile.paymentFailed) {
+    return res.status(403).json({ error: "Subscription payment required. Renew your plan to continue using AI analysis." });
   }
 
   if (!ai) {
     return res.status(500).json({ error: "AI Engine is not initialized. Please verify your GEMINI_API_KEY inside Settings > Secrets." });
+  }
+
+  // Concurrency Protection: Pessimistic reservation of 1 credit
+  let reservationSucceeded = false;
+  let originalCreditsRemaining = creditsRemaining;
+
+  if (sSupabase && userId && dbProfile) {
+    try {
+      const reservedCredits = creditsRemaining - 1;
+      let creditsColumnToMatch = "credits_remaining";
+      if (dbProfile.credits_remaining === undefined && dbProfile.Credits !== undefined) {
+        creditsColumnToMatch = "Credits";
+      }
+
+      const { data: reservedRows, error: reserveError } = await sSupabase
+        .from("profiles")
+        .update({
+          credits_remaining: reservedCredits,
+          free_analyses_remaining: reservedCredits,
+          Credits: reservedCredits,
+          updated_at: new Date()
+        })
+        .eq("id", userId)
+        .eq(creditsColumnToMatch, creditsRemaining) // Ensure no concurrent change occurred
+        .select();
+
+      if (reserveError || !reservedRows || reservedRows.length === 0) {
+        console.warn(`Concurrency check failed or credit already consumed for user ${userId}.`);
+        return res.status(403).json({
+          success: false,
+          code: "NO_CREDITS",
+          message: "Your available analysis credits have been exhausted. Please upgrade your subscription."
+        });
+      }
+      reservationSucceeded = true;
+      console.log(`Successfully reserved 1 credit for user ${userId}. New credits_remaining: ${reservedCredits}`);
+    } catch (err) {
+      console.error("Error during credit reservation:", err);
+      return res.status(500).json({ error: "Failed to reserve analysis credit. Please try again." });
+    }
+  } else {
+    // Local / Demo mode fallback
+    reservationSucceeded = true;
   }
 
   try {
@@ -588,21 +771,114 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
     const responseText = response.text;
     if (responseText) {
       const resultData = JSON.parse(responseText.trim());
-      const updatedCreditsUsed = profile.creditsUsed + 1;
+
+      const updatedCreditsUsed = (currentProfile.creditsUsed !== undefined ? currentProfile.creditsUsed : (currentProfile.credits_used || 0)) + 1;
       const updatedRemaining = Math.max(0, limit - updatedCreditsUsed);
-      const updatedProfile = await handleSupabaseDeductionAndHistory(
-        userId,
-        profile,
-        pair,
-        accountSize,
-        riskPercent,
-        session,
-        resultData,
-        limit,
-        remainingCredits,
-        updatedCreditsUsed,
-        updatedRemaining
-      );
+      const newTotalSuccessfulAnalyses = (currentProfile.total_successful_analyses !== undefined ? currentProfile.total_successful_analyses : 0) + 1;
+
+      // Create the analysis record item
+      const dateTimeStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const newAnalysisId = "analysis-" + Date.now();
+      const newAnalysisItem = {
+        id: newAnalysisId,
+        user_id: userId,
+        pair: pair,
+        asset: pair,
+        account_size: accountSize,
+        risk_percent: riskPercent,
+        session: session,
+        result: resultData,
+        dateTime: dateTimeStr,
+        creditsUsed: 1,
+        status: "Success"
+      };
+
+      let existingHistory: any[] = [];
+      if (currentProfile.analysis_history) {
+        try {
+          existingHistory = typeof currentProfile.analysis_history === "string"
+            ? JSON.parse(currentProfile.analysis_history)
+            : currentProfile.analysis_history;
+        } catch (e) {
+          console.warn("Could not parse profile analysis_history:", e);
+        }
+      }
+      const updatedHistory = [newAnalysisItem, ...existingHistory];
+
+      const updatedProfile = {
+        ...currentProfile,
+        creditsUsed: updatedCreditsUsed,
+        credits_remaining: updatedRemaining,
+        free_analyses_remaining: updatedRemaining,
+        Credits: updatedRemaining,
+        total_successful_analyses: newTotalSuccessfulAnalyses,
+        analysis_history: updatedHistory
+      };
+
+      if (sSupabase && userId && dbProfile) {
+        try {
+          // Step 3: Save analysis_history
+          const { error: historyInsertError } = await sSupabase
+            .from("analysis_history")
+            .insert({
+              id: newAnalysisId,
+              user_id: userId,
+              pair: pair,
+              asset: pair,
+              account_size: accountSize,
+              risk_percent: riskPercent,
+              session: session,
+              result: JSON.stringify(resultData),
+              dateTime: dateTimeStr,
+              creditsUsed: 1,
+              status: "Success"
+            });
+
+          if (historyInsertError) {
+            throw historyInsertError;
+          }
+
+          // Step 4 & 5: Update credits_remaining, creditsUsed and analysis count in profile
+          const { error: profileUpdateError } = await sSupabase
+            .from("profiles")
+            .update({
+              creditsUsed: updatedCreditsUsed,
+              credits_used: updatedCreditsUsed,
+              total_successful_analyses: newTotalSuccessfulAnalyses,
+              analysis_history: JSON.stringify(updatedHistory),
+              updated_at: new Date()
+            })
+            .eq("id", userId);
+
+          if (profileUpdateError) {
+            // Rollback the inserted history row on profile update failure
+            await sSupabase.from("analysis_history").delete().eq("id", newAnalysisId);
+            throw profileUpdateError;
+          }
+
+          console.log(`Successfully committed analysis transaction for user ${userId}.`);
+        } catch (dbErr: any) {
+          console.error("Database sync/insert step failed, triggering rollback:", dbErr);
+          
+          // Full rollback of reserved credit
+          try {
+            await sSupabase
+              .from("profiles")
+              .update({
+                credits_remaining: originalCreditsRemaining,
+                free_analyses_remaining: originalCreditsRemaining,
+                Credits: originalCreditsRemaining,
+                updated_at: new Date()
+              })
+              .eq("id", userId);
+          } catch (rbErr) {
+            console.error("Failed to restore credits during database step rollback:", rbErr);
+          }
+
+          return res.status(500).json({ error: `Database sync failed: ${dbErr?.message || dbErr}` });
+        }
+      }
+
       return res.json({
         result: resultData,
         updatedProfile,
@@ -612,6 +888,25 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
     }
   } catch (apiError: any) {
     console.error("Gemini Vision Analysis Error:", apiError);
+
+    // Rollback the reserved credit on any error during the generation process
+    if (reservationSucceeded && sSupabase && userId && dbProfile) {
+      try {
+        console.log(`Rolling back credit reservation for user ${userId}. Restoring credits to ${originalCreditsRemaining}`);
+        await sSupabase
+          .from("profiles")
+          .update({
+            credits_remaining: originalCreditsRemaining,
+            free_analyses_remaining: originalCreditsRemaining,
+            Credits: originalCreditsRemaining,
+            updated_at: new Date()
+          })
+          .eq("id", userId);
+      } catch (rollbackErr) {
+        console.error("Failed to restore credits during API level rollback:", rollbackErr);
+      }
+    }
+
     return res.status(500).json({ error: `AI Vision Analysis failed: ${apiError?.message || apiError}` });
   }
 });
@@ -854,6 +1149,11 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
             Subscription: "active",
             nextResetDate,
             paymentFailed: false,
+            // Newly added fields for production persistence
+            current_plan: isElite ? "ELITE" : "PRO",
+            credits_used: 0,
+            subscription_start_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+            subscription_end_date: nextResetDate,
             updated_at: new Date()
           })
           .eq("id", userId);
@@ -925,7 +1225,15 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
           price: price,
           activation_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
           expiry_date: nextResetDate,
-          payment_history: JSON.stringify(updatedHistory)
+          payment_history: JSON.stringify(updatedHistory),
+          // Newly added fields for production persistence
+          current_plan: isElite ? "ELITE" : "PRO",
+          subscription_status: "active",
+          total_credits: credits,
+          credits_remaining: credits,
+          credits_used: 0,
+          subscription_start_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          subscription_end_date: nextResetDate
         })
         .eq("id", userId);
 
@@ -951,6 +1259,15 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
           } catch (e) {}
         }
 
+        let parsedAnalysisHistory = [];
+        if (finalDbProfile.analysis_history) {
+          try {
+            parsedAnalysisHistory = typeof finalDbProfile.analysis_history === "string"
+              ? JSON.parse(finalDbProfile.analysis_history)
+              : finalDbProfile.analysis_history;
+          } catch (e) {}
+        }
+
         updatedProfile = {
           ...currentProfile,
           id: finalDbProfile.id,
@@ -973,7 +1290,13 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
           price: finalDbProfile.price,
           activation_date: finalDbProfile.activation_date,
           expiry_date: finalDbProfile.expiry_date,
-          payment_history: parsedHistory
+          payment_history: parsedHistory,
+          // Newly added fields for production persistence
+          current_plan: finalDbProfile.current_plan || finalDbProfile.plan,
+          subscription_start_date: finalDbProfile.subscription_start_date || finalDbProfile.activation_date || finalDbProfile.joinDate || "",
+          subscription_end_date: finalDbProfile.subscription_end_date || finalDbProfile.expiry_date || "Never",
+          total_successful_analyses: finalDbProfile.total_successful_analyses !== undefined ? finalDbProfile.total_successful_analyses : 0,
+          analysis_history: parsedAnalysisHistory
         };
       }
     } catch (profileFetchErr) {
