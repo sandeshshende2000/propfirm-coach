@@ -548,33 +548,12 @@ export default function App() {
           // Insert the new profile into Supabase
           const { error: insertError } = await supabase.from("profiles").insert({
             id: user.id,
-            name: mappedProfile.name,
             email: mappedProfile.email,
-            Plan: "FREE_TRIAL",
-            plan_name: "FREE TRIAL",
-            subscriptionPlan: "Free",
-            Credits: 3,
+            plan: "FREE_TRIAL",
             credits_remaining: 3,
             total_credits: 3,
-            free_analyses_remaining: 3,
             subscription_status: "active",
-            nextResetDate: "Never",
-            paymentFailed: false,
-            joinDate: mappedProfile.joinDate,
-            creditsUsed: 0,
-            creditsLimit: 3,
-            plan: "FREE_TRIAL",
-            credits: 3,
-            price: 0,
-            activation_date: mappedProfile.joinDate,
-            expiry_date: "Never",
-            payment_history: JSON.stringify([]),
-            // Newly added fields for production persistence
-            current_plan: "FREE_TRIAL",
-            subscription_start_date: todayDate,
-            subscription_end_date: "Never",
-            total_successful_analyses: 0,
-            analysis_history: JSON.stringify([]),
+            role: "user",
             updated_at: new Date()
           });
 

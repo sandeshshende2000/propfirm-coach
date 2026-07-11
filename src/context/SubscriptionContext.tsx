@@ -249,39 +249,12 @@ export function SubscriptionProvider({
 
         const deltaKeys = Object.keys(changedDeltas);
         if (deltaKeys.length > 0) {
-          if (changedDeltas.name !== undefined) dbPayload.name = changedDeltas.name;
           if (changedDeltas.email !== undefined) dbPayload.email = changedDeltas.email;
-          if (changedDeltas.plan !== undefined) {
-            dbPayload.plan = changedDeltas.plan;
-            dbPayload.Plan = changedDeltas.plan;
-          }
-          if (changedDeltas.subscriptionPlan !== undefined) dbPayload.subscriptionPlan = changedDeltas.subscriptionPlan;
-          if (changedDeltas.plan_name !== undefined) dbPayload.plan_name = changedDeltas.plan_name;
-          if (changedDeltas.current_plan !== undefined) dbPayload.current_plan = changedDeltas.current_plan;
-          if (changedDeltas.accountBalance !== undefined) dbPayload.accountBalance = changedDeltas.accountBalance;
-          if (changedDeltas.credits_remaining !== undefined) {
-            dbPayload.credits_remaining = changedDeltas.credits_remaining;
-            dbPayload.free_analyses_remaining = changedDeltas.credits_remaining;
-            dbPayload.credits = changedDeltas.credits_remaining;
-            dbPayload.Credits = changedDeltas.credits_remaining;
-          }
-          if (changedDeltas.total_credits !== undefined) {
-            dbPayload.total_credits = changedDeltas.total_credits;
-            dbPayload.creditsLimit = changedDeltas.total_credits;
-          }
-          if (changedDeltas.creditsUsed !== undefined) {
-            dbPayload.creditsUsed = changedDeltas.creditsUsed;
-            dbPayload.credits_used = changedDeltas.creditsUsed;
-          }
-          if (changedDeltas.paymentFailed !== undefined) dbPayload.paymentFailed = changedDeltas.paymentFailed;
+          if (changedDeltas.plan !== undefined) dbPayload.plan = changedDeltas.plan;
+          if (changedDeltas.credits_remaining !== undefined) dbPayload.credits_remaining = changedDeltas.credits_remaining;
+          if (changedDeltas.total_credits !== undefined) dbPayload.total_credits = changedDeltas.total_credits;
           if (changedDeltas.subscription_status !== undefined) dbPayload.subscription_status = changedDeltas.subscription_status;
-          if (changedDeltas.activation_date !== undefined) dbPayload.activation_date = changedDeltas.activation_date;
-          if (changedDeltas.expiry_date !== undefined) dbPayload.expiry_date = changedDeltas.expiry_date;
-          if (changedDeltas.payment_history !== undefined) dbPayload.payment_history = JSON.stringify(changedDeltas.payment_history);
-          if (changedDeltas.subscription_start_date !== undefined) dbPayload.subscription_start_date = changedDeltas.subscription_start_date;
-          if (changedDeltas.subscription_end_date !== undefined) dbPayload.subscription_end_date = changedDeltas.subscription_end_date;
-          if (changedDeltas.total_successful_analyses !== undefined) dbPayload.total_successful_analyses = changedDeltas.total_successful_analyses;
-          if (changedDeltas.analysis_history !== undefined) dbPayload.analysis_history = JSON.stringify(changedDeltas.analysis_history);
+          if (changedDeltas.role !== undefined) dbPayload.role = changedDeltas.role;
 
           const payloadKeys = Object.keys(dbPayload).filter(k => k !== "updated_at");
           if (payloadKeys.length > 0) {

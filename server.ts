@@ -454,16 +454,11 @@ app.post("/api/analyze-trade", async (req, res) => {
     try {
       const reservedCredits = creditsRemaining - 1;
       let creditsColumnToMatch = "credits_remaining";
-      if (dbProfile.credits_remaining === undefined && dbProfile.Credits !== undefined) {
-        creditsColumnToMatch = "Credits";
-      }
 
       const { data: reservedRows, error: reserveError } = await sSupabase
         .from("profiles")
         .update({
           credits_remaining: reservedCredits,
-          free_analyses_remaining: reservedCredits,
-          Credits: reservedCredits,
           updated_at: new Date()
         })
         .eq("id", userId)
@@ -817,35 +812,26 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
 
       if (sSupabase && userId && dbProfile) {
         try {
-          // Step 3: Save analysis_history
+          // Step 3: Save analysis_history with only columns that exist
           const { error: historyInsertError } = await sSupabase
             .from("analysis_history")
             .insert({
               id: newAnalysisId,
               user_id: userId,
-              pair: pair,
               asset: pair,
-              account_size: accountSize,
-              risk_percent: riskPercent,
-              session: session,
-              result: JSON.stringify(resultData),
-              dateTime: dateTimeStr,
-              creditsUsed: 1,
-              status: "Success"
+              status: "Success",
+              created_at: new Date()
             });
 
           if (historyInsertError) {
             throw historyInsertError;
           }
 
-          // Step 4 & 5: Update credits_remaining, creditsUsed and analysis count in profile
+          // Step 4 & 5: Update credits_remaining with only columns that exist
           const { error: profileUpdateError } = await sSupabase
             .from("profiles")
             .update({
-              creditsUsed: updatedCreditsUsed,
-              credits_used: updatedCreditsUsed,
-              total_successful_analyses: newTotalSuccessfulAnalyses,
-              analysis_history: JSON.stringify(updatedHistory),
+              credits_remaining: updatedRemaining,
               updated_at: new Date()
             })
             .eq("id", userId);
@@ -931,10 +917,10 @@ async function getPendingOrder(orderId: string) {
         return {
           order_id: data.id || data.order_id,
           user_id: data.user_id,
-          selected_plan: data.selected_plan || (data.plan_name?.toLowerCase().includes("elite") ? "plan-elite" : "plan-pro"),
-          expected_amount: data.expected_amount || data.amount,
-          currency: data.currency,
-          status: data.status
+          selected_plan: data.plan_name?.toLowerCase().includes("elite") ? "plan-elite" : "plan-pro",
+          expected_amount: data.amount,
+          currency: data.currency || "USD",
+          status: data.transaction_id ? "Completed" : "Pending"
         };
       }
     } catch (err) {
@@ -949,30 +935,45 @@ async function createPendingOrder(orderId: string, userId: string, planId: strin
     id: orderId,
     order_id: orderId,
     user_id: userId || "guest",
-    selected_plan: planId,
     plan_name: planId === "plan-elite" ? "ELITE TRADER" : "PRO TRADER",
-    expected_amount: amount,
     amount: amount,
     currency: "USD",
-    status: "Pending",
     created_at: new Date()
   };
 
-  pendingPaymentsInMemory.set(orderId, orderObj);
+  pendingPaymentsInMemory.set(orderId, {
+    ...orderObj,
+    selected_plan: planId,
+    expected_amount: amount,
+    status: "Pending"
+  });
 
   const sSupabase = getServerSupabase();
   if (sSupabase && userId && userId !== "guest") {
-    try {
-      const { error } = await sSupabase
-        .from("payments")
-        .insert(orderObj);
-      if (error) {
-        console.warn("Could not insert pending payment in Supabase:", error);
-      } else {
-        console.log("Inserted pending payment record in Supabase:", orderId);
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(userId)) {
+      try {
+        const { error } = await sSupabase
+          .from("payments")
+          .insert({
+            id: orderId,
+            order_id: orderId,
+            user_id: userId,
+            plan_name: orderObj.plan_name,
+            amount: amount,
+            currency: "USD",
+            created_at: orderObj.created_at
+          });
+        if (error) {
+          console.warn("Could not insert pending payment in Supabase:", error);
+        } else {
+          console.log("Inserted pending payment record in Supabase:", orderId);
+        }
+      } catch (err) {
+        console.warn("Could not insert pending payment in Supabase:", err);
       }
-    } catch (err) {
-      console.warn("Could not insert pending payment in Supabase:", err);
+    } else {
+      console.warn(`Skipped inserting pending payment in Supabase: user_id '${userId}' is not a valid UUID`);
     }
   }
 }
@@ -987,16 +988,19 @@ async function updateOrderStatus(orderId: string, status: string, transactionId?
   const sSupabase = getServerSupabase();
   if (sSupabase) {
     try {
-      const { error } = await sSupabase
-        .from("payments")
-        .update({
-          status: status,
-          transaction_id: transactionId || null,
-          updated_at: new Date()
-        })
-        .eq("id", orderId);
-      if (error) {
-        console.warn("Could not update payment status in Supabase:", error);
+      const updatePayload: any = {};
+      if (transactionId) {
+        updatePayload.transaction_id = transactionId;
+      }
+      
+      if (Object.keys(updatePayload).length > 0) {
+        const { error } = await sSupabase
+          .from("payments")
+          .update(updatePayload)
+          .eq("id", orderId);
+        if (error) {
+          console.warn("Could not update payment status in Supabase:", error);
+        }
       }
     } catch (err) {
       console.warn("Could not update payment status in Supabase:", err);
@@ -1027,7 +1031,10 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
 
   const sSupabase = getServerSupabase();
   if (sSupabase && userId && userId !== "guest") {
-    if (isCard) {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUserUuid = uuidRegex.test(userId);
+
+    if (isCard && isUserUuid) {
       try {
         const ordId = "CC-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
         const txId = "TXN-CC-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
@@ -1035,12 +1042,9 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
           id: ordId,
           order_id: ordId,
           user_id: userId,
-          selected_plan: planId,
           plan_name: isElite ? "ELITE TRADER" : "PRO TRADER",
-          expected_amount: price,
           amount: price,
           currency: "USD",
-          status: "Completed",
           transaction_id: txId,
           created_at: new Date()
         });
@@ -1052,28 +1056,47 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
 
     let rpcSuccess = false;
 
-    // Try 1: activate_subscription RPC
+    // Try 1: activate_pro_subscription or activate_elite_subscription RPC
+    const specificRpc = isElite ? "activate_elite_subscription" : "activate_pro_subscription";
     try {
-      console.log("Attempting RPC activate_subscription...");
-      const { error } = await sSupabase.rpc("activate_subscription", {
-        p_user_id: userId,
-        p_plan_name: planName,
-        p_credits: credits
+      console.log(`Attempting RPC ${specificRpc}...`);
+      const { error } = await sSupabase.rpc(specificRpc, {
+        p_user_id: userId
       });
       if (!error) {
-        console.log("RPC activate_subscription succeeded!");
+        console.log(`RPC ${specificRpc} succeeded!`);
         rpcSuccess = true;
       } else {
-        console.warn("RPC activate_subscription failed:", error);
+        console.warn(`RPC ${specificRpc} failed:`, error);
       }
     } catch (err) {
-      console.warn("Error calling RPC activate_subscription:", err);
+      console.warn(`Error calling RPC ${specificRpc}:`, err);
     }
 
-    // Try 2: activate_plan RPC
+    // Try 2: activate_subscription RPC fallback
     if (!rpcSuccess) {
       try {
-        console.log("Attempting RPC activate_plan...");
+        console.log("Attempting fallback RPC activate_subscription...");
+        const { error } = await sSupabase.rpc("activate_subscription", {
+          p_user_id: userId,
+          p_plan_name: planName,
+          p_credits: credits
+        });
+        if (!error) {
+          console.log("RPC activate_subscription succeeded!");
+          rpcSuccess = true;
+        } else {
+          console.warn("RPC activate_subscription failed:", error);
+        }
+      } catch (err) {
+        console.warn("Error calling RPC activate_subscription:", err);
+      }
+    }
+
+    // Try 3: activate_plan RPC fallback
+    if (!rpcSuccess) {
+      try {
+        console.log("Attempting fallback RPC activate_plan...");
         const { error } = await sSupabase.rpc("activate_plan", {
           p_user_id: userId,
           p_plan_name: planName,
@@ -1090,11 +1113,11 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
       }
     }
 
-    // Try 3: specific RPC like activate_pro or activate_elite
+    // Try 4: specific RPC like activate_pro or activate_elite fallback
     if (!rpcSuccess) {
       const rpcName = isElite ? "activate_elite" : "activate_pro";
       try {
-        console.log(`Attempting RPC ${rpcName}...`);
+        console.log(`Attempting fallback RPC ${rpcName}...`);
         const { error } = await sSupabase.rpc(rpcName, {
           p_user_id: userId
         });
@@ -1109,10 +1132,10 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
       }
     }
 
-    // Try 4: activate_subscription with non-prefixed params
+    // Try 5: activate_subscription with non-prefixed params fallback
     if (!rpcSuccess) {
       try {
-        console.log("Attempting RPC activate_subscription with non-prefixed params...");
+        console.log("Attempting fallback RPC activate_subscription with non-prefixed params...");
         const { error } = await sSupabase.rpc("activate_subscription", {
           user_id: userId,
           plan_name: planName,
@@ -1134,26 +1157,14 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
       try {
         console.log("No RPC succeeded. Falling back to manual table inserts and updates...");
 
-        // A. Update user profiles table
+        // A. Update user profiles table with only columns that exist
         const { error: profileUpdateError } = await sSupabase
           .from("profiles")
           .update({
-            Plan: planName.toUpperCase(),
-            plan_name: planName.toUpperCase() + " TRADER",
-            subscriptionPlan: planName,
-            Credits: credits,
+            plan: planName.toUpperCase(),
             credits_remaining: credits,
             total_credits: credits,
-            free_analyses_remaining: credits,
             subscription_status: "active",
-            Subscription: "active",
-            nextResetDate,
-            paymentFailed: false,
-            // Newly added fields for production persistence
-            current_plan: isElite ? "ELITE" : "PRO",
-            credits_used: 0,
-            subscription_start_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-            subscription_end_date: nextResetDate,
             updated_at: new Date()
           })
           .eq("id", userId);
@@ -1162,28 +1173,23 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
           console.error("Backend error updating profile to paid tier in Supabase:", profileUpdateError);
         }
 
-        // B. Log into subscriptions table
+        // B. Log into subscriptions table with only columns that exist
         await sSupabase
           .from("subscriptions")
           .insert({
             id: "sub-" + Date.now(),
             user_id: userId,
             plan_name: planName.toUpperCase() + " TRADER",
-            status: "active",
-            price,
-            created_at: new Date(),
-            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            created_at: new Date()
           });
 
-        // C. Log into credit_transactions table
+        // C. Log into credit_transactions table with only columns that exist
         await sSupabase
           .from("credit_transactions")
           .insert({
             id: "tx-" + Date.now(),
             user_id: userId,
-            amount: credits,
             transaction_type: "grant",
-            description: `Granted credits for ${planName.toUpperCase()} plan activation`,
             created_at: new Date()
           });
 
@@ -1194,46 +1200,14 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
 
     // Always update/write the new specific columns requested to guarantee single source of truth in profiles table:
     try {
-      let existingHistory: any[] = [];
-      const { data: curProf } = await sSupabase
-        .from("profiles")
-        .select("payment_history")
-        .eq("id", userId)
-        .single();
-      if (curProf && curProf.payment_history) {
-        existingHistory = typeof curProf.payment_history === "string"
-          ? JSON.parse(curProf.payment_history)
-          : curProf.payment_history;
-      }
-
-      const txId = "TXN-PAY-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
-      const newPayment = {
-        id: "pay-" + Date.now(),
-        date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        plan: isElite ? "ELITE" : "PRO",
-        amount: price,
-        status: "COMPLETED",
-        transaction_id: txId
-      };
-      const updatedHistory = [...existingHistory, newPayment];
-
       await sSupabase
         .from("profiles")
         .update({
           plan: isElite ? "ELITE" : "PRO",
-          credits: credits,
-          price: price,
-          activation_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-          expiry_date: nextResetDate,
-          payment_history: JSON.stringify(updatedHistory),
-          // Newly added fields for production persistence
-          current_plan: isElite ? "ELITE" : "PRO",
-          subscription_status: "active",
-          total_credits: credits,
           credits_remaining: credits,
-          credits_used: 0,
-          subscription_start_date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-          subscription_end_date: nextResetDate
+          total_credits: credits,
+          subscription_status: "active",
+          updated_at: new Date()
         })
         .eq("id", userId);
 
@@ -1423,7 +1397,9 @@ app.post("/api/razorpay/capture-payment", async (req, res) => {
       return res.status(400).json({ error: "The payment has already been processed." });
     }
 
-    if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+    const isRealRzpOrder = orderId && orderId.startsWith("order_");
+
+    if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET && isRealRzpOrder) {
       // Real HMAC-SHA256 signature verification for production security
       if (!razorpayPaymentId || !razorpaySignature) {
         await updateOrderStatus(orderId, "Failed");
@@ -1441,7 +1417,7 @@ app.post("/api/razorpay/capture-payment", async (req, res) => {
         return res.status(400).json({ error: "Razorpay signature verification failed. Tampering detected." });
       }
     } else {
-      // Simulation mode
+      // Simulation mode or simulated fallback order (RZP-ORD-...)
       if (status === "FAILED") {
         await updateOrderStatus(orderId, "Failed");
         return res.status(400).json({ error: "Payment failed during Razorpay transaction." });
