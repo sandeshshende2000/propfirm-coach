@@ -429,15 +429,31 @@ export default function App() {
 
         let mappedProfile: UserProfile;
 
-        let parsedHistory = mappedPayments;
+        let parsedHistory: any[] = mappedPayments;
+        let jsonHistory: any[] = [];
         if (profileData && profileData.payment_history) {
           try {
-            parsedHistory = typeof profileData.payment_history === "string"
+            jsonHistory = typeof profileData.payment_history === "string"
               ? JSON.parse(profileData.payment_history)
               : profileData.payment_history;
           } catch (e) {
             console.warn("Issue parsing payment_history from Supabase:", e);
           }
+        }
+        if (!Array.isArray(jsonHistory)) jsonHistory = [];
+
+        if (mappedPayments.length === 0 && jsonHistory.length > 0) {
+          parsedHistory = jsonHistory;
+        } else if (mappedPayments.length > 0 && jsonHistory.length > 0) {
+          const ids = new Set(mappedPayments.map(p => p.id || p.transaction_id));
+          for (const item of jsonHistory) {
+            const itemId = item.id || item.transaction_id;
+            if (itemId && !ids.has(itemId)) {
+              mappedPayments.push(item);
+              ids.add(itemId);
+            }
+          }
+          parsedHistory = mappedPayments;
         }
 
         if (profileData) {
@@ -467,7 +483,12 @@ export default function App() {
                     ? profileData.credits 
                     : 3));
 
-          let currentPlanName = profileData.plan_name || profileData.Plan_Name || "FREE TRIAL";
+          let currentPlanName = profileData.plan_name || profileData.Plan_Name || (loadedPlan === "PRO" ? "PRO TRADER" : (loadedPlan === "ELITE" ? "ELITE TRADER" : "FREE TRIAL"));
+          if (loadedPlan === "PRO" && (currentPlanName === "FREE TRIAL" || currentPlanName === "FREE_TRIAL")) {
+            currentPlanName = "PRO TRADER";
+          } else if (loadedPlan === "ELITE" && (currentPlanName === "FREE TRIAL" || currentPlanName === "FREE_TRIAL")) {
+            currentPlanName = "ELITE TRADER";
+          }
           if (loadedPlan === "FREE_TRIAL" && remainingCredits === 0) {
             currentPlanName = "FREE TRIAL EXPIRED";
           }
@@ -626,35 +647,54 @@ export default function App() {
         setTrades(mappedTrades);
         db.saveTrades(mappedTrades, false, false); // Local cache only
 
-        // Fetch user analysis history
-        const { data: historyData, error: historyError } = await supabase
-          .from("analysis_history")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("dateTime", { ascending: false });
-
-        if (historyError) {
-          console.warn("Issue fetching analysis history from Supabase:", historyError);
-          setSupabaseLoadError(historyError);
-          setIsDataLoading(false);
-          return;
+        // Fetch user analysis history safely
+        let historyData: any[] = [];
+        try {
+          const { data } = await supabase
+            .from("analysis_history")
+            .select("*")
+            .eq("user_id", user.id);
+          if (data) {
+            historyData = data;
+          }
+        } catch (hErr) {
+          console.warn("Notice: analysis_history query fallback:", hErr);
         }
 
         let mappedAnalyses: AIAnalysisRecord[] = [];
-        if (historyData) {
+        if (historyData && historyData.length > 0) {
           mappedAnalyses = historyData.map((row: any) => ({
             id: row.id,
-            date: row.dateTime ? row.dateTime.split(" ")[0] : row.date_time || "",
+            date: row.dateTime ? row.dateTime.split(" ")[0] : (row.created_at ? new Date(row.created_at).toISOString().split("T")[0] : ""),
             pair: row.pair || row.asset || row.Asset || "UNKNOWN",
             accountSize: row.accountSize || row.account_size || 100000,
             riskPercent: row.riskPercent || row.risk_percent || 1,
             session: row.session || "",
             result: typeof row.result === "string" ? JSON.parse(row.result) : row.result,
-            dateTime: row.dateTime || row.date_time,
+            dateTime: row.dateTime || row.date_time || row.created_at,
             creditsUsed: row.creditsUsed || row.credits_used || 1,
             status: row.status || "Success",
           }));
         }
+
+        // Merge with mappedProfile.analysis_history JSON items if present
+        if (mappedProfile.analysis_history && Array.isArray(mappedProfile.analysis_history) && mappedProfile.analysis_history.length > 0) {
+          const ids = new Set(mappedAnalyses.map(a => a.id));
+          for (const item of mappedProfile.analysis_history) {
+            if (item.id && !ids.has(item.id)) {
+              mappedAnalyses.push(item);
+              ids.add(item.id);
+            }
+          }
+        }
+
+        // Ensure total_successful_analyses reflects total analyses count
+        mappedProfile.total_successful_analyses = Math.max(
+          mappedProfile.total_successful_analyses || 0,
+          mappedAnalyses.length
+        );
+        mappedProfile.analysis_history = mappedAnalyses;
+
         setAnalyses(mappedAnalyses);
         db.saveAnalyses(mappedAnalyses, false, false); // Local cache only
 
@@ -670,41 +710,35 @@ export default function App() {
     // Set up real-time postgres_changes channels to auto-refresh the dashboard
     const profilesSubscription = supabase
       .channel("profiles-changes-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        () => {
-          loadSupabaseData();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => loadSupabaseData())
       .subscribe();
 
     const historySubscription = supabase
       .channel("history-changes-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "analysis_history" },
-        () => {
-          loadSupabaseData();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "analysis_history" }, () => loadSupabaseData())
       .subscribe();
 
     const paymentsSubscription = supabase
       .channel("payments-changes-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "payments" },
-        () => {
-          loadSupabaseData();
-        }
-      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => loadSupabaseData())
+      .subscribe();
+
+    const subscriptionsSubscription = supabase
+      .channel("subscriptions-changes-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "subscriptions" }, () => loadSupabaseData())
+      .subscribe();
+
+    const creditTxSubscription = supabase
+      .channel("credit-tx-changes-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "credit_transactions" }, () => loadSupabaseData())
       .subscribe();
 
     return () => {
       profilesSubscription.unsubscribe();
       historySubscription.unsubscribe();
       paymentsSubscription.unsubscribe();
+      subscriptionsSubscription.unsubscribe();
+      creditTxSubscription.unsubscribe();
     };
   }, [isAuthenticated]);
 

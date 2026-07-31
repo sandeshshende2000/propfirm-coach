@@ -389,15 +389,31 @@ export function SubscriptionProvider({
           }));
         }
 
-        let parsedHistory = mappedPayments;
+        let parsedHistory: any[] = mappedPayments;
+        let jsonHistory: any[] = [];
         if (profileData.payment_history) {
           try {
-            parsedHistory = typeof profileData.payment_history === "string"
+            jsonHistory = typeof profileData.payment_history === "string"
               ? JSON.parse(profileData.payment_history)
               : profileData.payment_history;
           } catch (e) {
             console.warn("Issue parsing payment history in refreshProfile:", e);
           }
+        }
+        if (!Array.isArray(jsonHistory)) jsonHistory = [];
+
+        if (mappedPayments.length === 0 && jsonHistory.length > 0) {
+          parsedHistory = jsonHistory;
+        } else if (mappedPayments.length > 0 && jsonHistory.length > 0) {
+          const ids = new Set(mappedPayments.map(p => p.id || p.transaction_id));
+          for (const item of jsonHistory) {
+            const itemId = item.id || item.transaction_id;
+            if (itemId && !ids.has(itemId)) {
+              mappedPayments.push(item);
+              ids.add(itemId);
+            }
+          }
+          parsedHistory = mappedPayments;
         }
 
         // Let's parse remaining credits correctly from Supabase
@@ -423,7 +439,12 @@ export function SubscriptionProvider({
                   ? profileData.credits 
                   : 3));
 
-        let currentPlanName = profileData.plan_name || profileData.Plan_Name || "FREE TRIAL";
+        let currentPlanName = profileData.plan_name || profileData.Plan_Name || (loadedPlan === "PRO" ? "PRO TRADER" : (loadedPlan === "ELITE" ? "ELITE TRADER" : "FREE TRIAL"));
+        if (loadedPlan === "PRO" && (currentPlanName === "FREE TRIAL" || currentPlanName === "FREE_TRIAL")) {
+          currentPlanName = "PRO TRADER";
+        } else if (loadedPlan === "ELITE" && (currentPlanName === "FREE TRIAL" || currentPlanName === "FREE_TRIAL")) {
+          currentPlanName = "ELITE TRADER";
+        }
         if (loadedPlan === "FREE_TRIAL" && remainingCredits === 0) {
           currentPlanName = "FREE TRIAL EXPIRED";
         }
@@ -438,6 +459,42 @@ export function SubscriptionProvider({
             console.warn("Could not parse profileData.analysis_history in refreshProfile:", e);
           }
         }
+        if (!Array.isArray(parsedAnalysisHistory)) parsedAnalysisHistory = [];
+
+        // Load analysis_history table records from Supabase
+        try {
+          const { data: dbAnalysisRows } = await supabase
+            .from("analysis_history")
+            .select("*")
+            .eq("user_id", user.id);
+
+          if (dbAnalysisRows && dbAnalysisRows.length > 0) {
+            const existingIds = new Set(parsedAnalysisHistory.map(a => a.id));
+            for (const row of dbAnalysisRows) {
+              if (row.id && !existingIds.has(row.id)) {
+                parsedAnalysisHistory.push({
+                  id: row.id,
+                  user_id: row.user_id,
+                  pair: row.pair || row.asset || "UNKNOWN",
+                  accountSize: row.account_size || row.accountSize || 100000,
+                  riskPercent: row.risk_percent || row.riskPercent || 1,
+                  session: row.session || "",
+                  result: typeof row.result === "string" ? JSON.parse(row.result) : row.result,
+                  dateTime: row.dateTime || row.created_at,
+                  creditsUsed: row.creditsUsed || row.credits_used || 1,
+                  status: row.status || "Success"
+                });
+                existingIds.add(row.id);
+              }
+            }
+          }
+        } catch (dbAnalysisErr) {
+          console.warn("Notice: dbAnalysisRows fetch fallback:", dbAnalysisErr);
+        }
+
+        const calculatedTotalAnalyses = profileData.total_successful_analyses !== undefined 
+          ? Math.max(profileData.total_successful_analyses, parsedAnalysisHistory.length)
+          : parsedAnalysisHistory.length;
 
         const refreshed: UserProfile = {
           ...profile,
@@ -460,7 +517,7 @@ export function SubscriptionProvider({
           current_plan: profileData.current_plan || loadedPlan,
           subscription_start_date: profileData.subscription_start_date || profileData.activation_date || profileData.joinDate || "",
           subscription_end_date: profileData.subscription_end_date || profileData.expiry_date || "Never",
-          total_successful_analyses: profileData.total_successful_analyses !== undefined ? profileData.total_successful_analyses : 0,
+          total_successful_analyses: calculatedTotalAnalyses,
           analysis_history: parsedAnalysisHistory
         };
 
@@ -564,13 +621,23 @@ export function SubscriptionProvider({
           const rzp = new win.Razorpay(options);
           rzp.on("payment.failed", function (resp: any) {
             console.error("Razorpay payment failed:", resp?.error || resp);
+            const failureDetail = resp?.error?.description || resp?.error?.reason || "Transaction was declined or failed.";
             setFeedbackMsg({
               type: "error",
-              text: resp?.error?.description || resp?.error?.reason || "Razorpay transaction failed."
+              text: `Razorpay Payment Failed: ${failureDetail}`
             });
             setIsPaypalProcessing(false);
           });
-          rzp.open();
+          try {
+            rzp.open();
+          } catch (openErr: any) {
+            console.error("Error opening Razorpay checkout window:", openErr);
+            setFeedbackMsg({
+              type: "error",
+              text: openErr?.message || "Could not launch Razorpay checkout modal."
+            });
+            setIsPaypalProcessing(false);
+          }
         } else {
           setFeedbackMsg({
             type: "error",
@@ -663,6 +730,7 @@ export function SubscriptionProvider({
       if (response.ok && result.success) {
         // Complete full state updates on client from verified profile response
         updateProfileState(result.updatedProfile);
+        await refreshProfile();
         setShowPaypalModal(false);
         setFeedbackMsg({
           type: "success",
@@ -734,6 +802,7 @@ export function SubscriptionProvider({
 
       if (response.ok && result.success) {
         updateProfileState(result.updatedProfile);
+        await refreshProfile();
         setShowPaypalModal(false);
         setFeedbackMsg({
           type: "success",

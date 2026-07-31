@@ -377,6 +377,87 @@ if (process.env.GEMINI_API_KEY) {
 // REST API Endpoints
 
 // 1. Analyze Trade Endpoint (using Gemini 3.5 Flash vision + text analysis)
+// Helper function to enforce strict internal logical consistency in AI analysis output
+function enforceConsistency(result: any) {
+  if (!result || typeof result !== "object") return result;
+
+  // 1. Harmonize marketBias & detectedBias
+  let bias = (result.marketBias || result.detectedBias || "Neutral").trim();
+  if (bias.toLowerCase().includes("bull")) bias = "Bullish";
+  else if (bias.toLowerCase().includes("bear")) bias = "Bearish";
+  else bias = "Neutral";
+
+  result.marketBias = bias;
+  result.detectedBias = bias;
+
+  // 2. Harmonize detectedTrend
+  let trend = (result.detectedTrend || "").trim();
+  if (bias === "Bullish" && (!trend || trend === "Not Available" || trend.toLowerCase().includes("down"))) {
+    trend = "Uptrend";
+  } else if (bias === "Bearish" && (!trend || trend === "Not Available" || trend.toLowerCase().includes("up"))) {
+    trend = "Downtrend";
+  } else if (bias === "Neutral" && (!trend || trend === "Not Available")) {
+    trend = "Sideways";
+  }
+  result.detectedTrend = trend;
+
+  // 3. Inspect decision from coachCommentary or tradePlan
+  let feedbackText = result.coachCommentary?.feedback || "";
+  let finalDecisionMatch = feedbackText.match(/### Final Decision\s*\n\s*([^\n#]+)/i);
+  let rawDecision = finalDecisionMatch ? finalDecisionMatch[1].trim().toUpperCase() : "";
+
+  let decision = "NO TRADE";
+  if (rawDecision.includes("BUY")) decision = "BUY";
+  else if (rawDecision.includes("SELL")) decision = "SELL";
+  else if (rawDecision.includes("NO TRADE")) decision = "NO TRADE";
+  else {
+    if (bias === "Bullish") decision = "BUY";
+    else if (bias === "Bearish") decision = "SELL";
+    else decision = "NO TRADE";
+  }
+
+  // 4. Strict Logical Validation Rules:
+  // - Never report Bearish while recommending BUY
+  // - Never report Bullish while recommending SELL
+  // - Never report Neutral while recommending BUY or SELL
+  if (bias === "Bearish" && decision === "BUY") {
+    console.warn("Consistency Enforcer: Correcting invalid Bearish + BUY contradiction to NO TRADE.");
+    decision = "NO TRADE";
+  } else if (bias === "Bullish" && decision === "SELL") {
+    console.warn("Consistency Enforcer: Correcting invalid Bullish + SELL contradiction to NO TRADE.");
+    decision = "NO TRADE";
+  } else if (bias === "Neutral" && decision !== "NO TRADE") {
+    console.warn("Consistency Enforcer: Correcting invalid Neutral bias + active trade decision to NO TRADE.");
+    decision = "NO TRADE";
+  }
+
+  // 5. Update feedbackText sections to be 100% consistent
+  if (typeof feedbackText === "string" && feedbackText.length > 0) {
+    if (feedbackText.includes("### Market Bias")) {
+      feedbackText = feedbackText.replace(/### Market Bias\s*\n\s*[^\n#]+/i, `### Market Bias\n${bias}`);
+    }
+    if (feedbackText.includes("### Trend")) {
+      feedbackText = feedbackText.replace(/### Trend\s*\n\s*[^\n#]+/i, `### Trend\n${trend}`);
+    }
+    if (feedbackText.includes("### Final Decision")) {
+      feedbackText = feedbackText.replace(/### Final Decision\s*\n\s*[^\n#]+/i, `### Final Decision\n${decision}`);
+    }
+    if (result.coachCommentary) {
+      result.coachCommentary.feedback = feedbackText;
+    }
+  }
+
+  // 6. If NO TRADE, sanitize tradePlan if entry was invalid
+  if (decision === "NO TRADE" && result.tradePlan) {
+    const entry = (result.tradePlan.suggestedEntry || "").toLowerCase();
+    if (entry && !entry.includes("no trade") && entry !== "not available") {
+      result.tradePlan.suggestedEntry = "NO TRADE - Setup Invalidation / Contradictory Signals";
+    }
+  }
+
+  return result;
+}
+
 app.post("/api/analyze-trade", async (req, res) => {
   const { pair, accountSize, riskPercent, session, h1Chart, m15Chart, m5Chart, profile, userId } = req.body;
 
@@ -513,6 +594,15 @@ Analyze every visible confirmation across the 3 screenshots:
 12. Candlestick Confirmation: Detect Bullish/Bearish Engulfing, Pin Bars, Inside Bars, Doji, and Strong/Weak Rejections.
 13. Session Analysis: Detect Asian, London, New York session lines, Kill Zones, or Session Breakouts (only if visible).
 
+DETERMINISTIC ANALYSIS & LOGICAL CONSISTENCY MANDATES:
+- You are operating as a 100% deterministic institutional trading engine. Given identical chart images and parameters (Symbol: ${pair}, Account Size: $${accountSize}, Risk: ${riskPercent}%, Session: ${session}), you MUST generate identical, reproducible analysis reports.
+- Avoid random alternative scenarios or generating multiple speculative possibilities. Focus on ONE definitive institutional decision.
+- STRICT LOGICAL CONSISTENCY RULES:
+  1. Never report a "Bearish" bias or "Downtrend" while recommending a "BUY" decision or Buy entry.
+  2. Never report a "Bullish" bias or "Uptrend" while recommending a "SELL" decision or Sell entry.
+  3. If trends/timeframes conflict or bias is Neutral/Sideways, the Final Decision MUST be "NO TRADE".
+  4. Ensure marketBias, detectedBias, detectedTrend, tradePlan, and Final Decision in coachCommentary.feedback are 100% synchronized and free of internal contradictions.
+
 MULTI-TIMEFRAME ALIGNMENT & RISK VALIDATION RULES:
 - High priority: H1 (Macro) -> M15 (Medium) -> M5 (Micro). Never ignore H1.
 - If H1 and M15 trends or structures disagree, the Final Decision must be "NO TRADE".
@@ -639,19 +729,25 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
     parts.push(extractImagePart(m5Chart));
 
     let response;
-    let attempts = 3;
-    let delayMs = 1500;
+    let attempts = 4;
+    let delayMs = 1000;
     let lastError: any = null;
-    let selectedModel = "gemini-3.5-flash";
+    const modelCandidates = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.1-pro-preview"];
+    let selectedModel = modelCandidates[0];
 
     for (let i = 0; i < attempts; i++) {
       try {
+        selectedModel = modelCandidates[Math.min(i, modelCandidates.length - 1)];
         console.log(`AI Vision attempt ${i + 1} of ${attempts} using model ${selectedModel}...`);
         response = await ai.models.generateContent({
           model: selectedModel,
           contents: { parts },
           config: {
             responseMimeType: "application/json",
+            temperature: 0,
+            topP: 0.1,
+            topK: 1,
+            seed: 42,
             responseSchema: {
               type: Type.OBJECT,
               properties: {
@@ -748,13 +844,8 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
         lastError = err;
         console.warn(`Gemini call attempt ${i + 1} failed:`, err?.message || err);
         if (i < attempts - 1) {
-          const errStr = String(err?.message || err).toLowerCase();
-          if (errStr.includes("demand") || errStr.includes("unavailable") || errStr.includes("503")) {
-            console.log("Switching to backup model gemini-flash-latest due to heavy traffic...");
-            selectedModel = "gemini-flash-latest";
-          }
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          delayMs *= 2;
+          delayMs *= 1.5;
         }
       }
     }
@@ -765,7 +856,7 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
 
     const responseText = response.text;
     if (responseText) {
-      const resultData = JSON.parse(responseText.trim());
+      const resultData = enforceConsistency(JSON.parse(responseText.trim()));
 
       const updatedCreditsUsed = (currentProfile.creditsUsed !== undefined ? currentProfile.creditsUsed : (currentProfile.credits_used || 0)) + 1;
       const updatedRemaining = Math.max(0, limit - updatedCreditsUsed);
@@ -812,40 +903,72 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
 
       if (sSupabase && userId && dbProfile) {
         try {
-          // Step 3: Save analysis_history with only columns that exist
+          // Step 3: Save analysis_history with full payload
           const { error: historyInsertError } = await sSupabase
             .from("analysis_history")
             .insert({
               id: newAnalysisId,
               user_id: userId,
               asset: pair,
+              pair: pair,
+              account_size: accountSize,
+              risk_percent: riskPercent,
+              session: session,
+              result: typeof resultData === "string" ? resultData : JSON.stringify(resultData),
               status: "Success",
+              dateTime: dateTimeStr,
               created_at: new Date()
             });
 
           if (historyInsertError) {
-            throw historyInsertError;
+            console.warn("Notice: analysis_history insert fallback:", historyInsertError);
           }
 
-          // Step 4 & 5: Update credits_remaining with only columns that exist
+          // Step 4 & 5: Update profiles with full credit and analysis count metadata
           const { error: profileUpdateError } = await sSupabase
             .from("profiles")
             .update({
               credits_remaining: updatedRemaining,
+              free_analyses_remaining: updatedRemaining,
+              credits: updatedRemaining,
+              credits_used: updatedCreditsUsed,
+              creditsUsed: updatedCreditsUsed,
+              total_successful_analyses: newTotalSuccessfulAnalyses,
+              analysis_history: JSON.stringify(updatedHistory),
               updated_at: new Date()
             })
             .eq("id", userId);
 
           if (profileUpdateError) {
             // Rollback the inserted history row on profile update failure
-            await sSupabase.from("analysis_history").delete().eq("id", newAnalysisId);
+            await sSupabase.from("analysis_history").delete().eq("id", newAnalysisId).catch(() => {});
             throw profileUpdateError;
+          }
+
+          // Step 6: Record credit usage in credit_transactions
+          try {
+            await sSupabase.from("credit_transactions").insert({
+              id: "tx-use-" + Date.now(),
+              user_id: userId,
+              transaction_type: "usage",
+              amount: 1,
+              created_at: new Date()
+            });
+          } catch (ctErr) {
+            console.warn("Notice: credit_transactions insert optional:", ctErr);
           }
 
           console.log(`Successfully committed analysis transaction for user ${userId}.`);
         } catch (dbErr: any) {
           console.error("Database sync/insert step failed, triggering rollback:", dbErr);
           
+          // Delete partial analysis_history row if inserted
+          try {
+            await sSupabase.from("analysis_history").delete().eq("id", newAnalysisId);
+          } catch (delErr) {
+            console.warn("Could not delete partial analysis_history row during rollback:", delErr);
+          }
+
           // Full rollback of reserved credit
           try {
             await sSupabase
@@ -861,7 +984,20 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
             console.error("Failed to restore credits during database step rollback:", rbErr);
           }
 
-          return res.status(500).json({ error: `Database sync failed: ${dbErr?.message || dbErr}` });
+          const restoredProfile = {
+            ...currentProfile,
+            credits_remaining: originalCreditsRemaining,
+            free_analyses_remaining: originalCreditsRemaining,
+            Credits: originalCreditsRemaining,
+            credits: originalCreditsRemaining,
+            creditsUsed: Math.max(0, (currentProfile.creditsUsed !== undefined ? currentProfile.creditsUsed : (currentProfile.credits_used || 0)))
+          };
+
+          return res.status(500).json({
+            error: `Database sync failed: ${dbErr?.message || dbErr}`,
+            updatedProfile: restoredProfile,
+            credits_remaining: originalCreditsRemaining
+          });
         }
       }
 
@@ -874,6 +1010,15 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
     }
   } catch (apiError: any) {
     console.error("Gemini Vision Analysis Error:", apiError);
+
+    const restoredProfile = {
+      ...currentProfile,
+      credits_remaining: originalCreditsRemaining,
+      free_analyses_remaining: originalCreditsRemaining,
+      Credits: originalCreditsRemaining,
+      credits: originalCreditsRemaining,
+      creditsUsed: Math.max(0, (currentProfile.creditsUsed !== undefined ? currentProfile.creditsUsed : (currentProfile.credits_used || 0)))
+    };
 
     // Rollback the reserved credit on any error during the generation process
     if (reservationSucceeded && sSupabase && userId && dbProfile) {
@@ -893,7 +1038,11 @@ Always finish the report in "coachCommentary.feedback" exactly with this footer 
       }
     }
 
-    return res.status(500).json({ error: `AI Vision Analysis failed: ${apiError?.message || apiError}` });
+    return res.status(500).json({
+      error: `AI Vision Analysis failed: ${apiError?.message || apiError}`,
+      updatedProfile: restoredProfile,
+      credits_remaining: originalCreditsRemaining
+    });
   }
 });
 
@@ -988,19 +1137,19 @@ async function updateOrderStatus(orderId: string, status: string, transactionId?
   const sSupabase = getServerSupabase();
   if (sSupabase) {
     try {
-      const updatePayload: any = {};
+      const updatePayload: any = {
+        status: status
+      };
       if (transactionId) {
         updatePayload.transaction_id = transactionId;
       }
       
-      if (Object.keys(updatePayload).length > 0) {
-        const { error } = await sSupabase
-          .from("payments")
-          .update(updatePayload)
-          .eq("id", orderId);
-        if (error) {
-          console.warn("Could not update payment status in Supabase:", error);
-        }
+      const { error } = await sSupabase
+        .from("payments")
+        .update(updatePayload)
+        .eq("id", orderId);
+      if (error) {
+        console.warn("Could not update payment status in Supabase:", error);
       }
     } catch (err) {
       console.warn("Could not update payment status in Supabase:", err);
@@ -1011,18 +1160,22 @@ async function updateOrderStatus(orderId: string, status: string, transactionId?
 async function activateUserSubscription(userId: string | undefined, planId: string, currentProfile: any, isCard: boolean = false) {
   const isElite = planId === "plan-elite" || planId.toLowerCase().includes("elite");
   const planName = isElite ? "Elite" : "Pro";
-  const credits = isElite ? 500 : 200;
+  const purchasedCredits = isElite ? 500 : 200;
   const price = isElite ? 49 : 29;
   const nextResetDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const formattedPlanName = isElite ? "ELITE TRADER" : "PRO TRADER";
+  const planCode = isElite ? "ELITE" : "PRO";
 
   let updatedProfile = {
     ...currentProfile,
     subscriptionPlan: planName,
-    plan_name: planName.toUpperCase() + " TRADER",
-    Credits: credits,
-    credits_remaining: credits,
-    total_credits: credits,
-    free_analyses_remaining: credits,
+    plan_name: formattedPlanName,
+    current_plan: planCode,
+    plan: planCode,
+    Credits: purchasedCredits,
+    credits_remaining: purchasedCredits,
+    total_credits: purchasedCredits,
+    free_analyses_remaining: purchasedCredits,
     subscription_status: "active",
     Subscription: "active",
     nextResetDate,
@@ -1034,259 +1187,248 @@ async function activateUserSubscription(userId: string | undefined, planId: stri
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const isUserUuid = uuidRegex.test(userId);
 
-    if (isCard && isUserUuid) {
+    if (isUserUuid) {
+      // Fetch existing database profile first to perform accurate credit accumulation
+      let existingDbProfile: any = null;
       try {
-        const ordId = "CC-ORD-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
-        const txId = "TXN-CC-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+        const { data } = await sSupabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .maybeSingle();
+        existingDbProfile = data;
+      } catch (e) {
+        console.warn("Could not fetch existing profile prior to subscription activation:", e);
+      }
+
+      // FIX #1: Existing remaining credits must always be preserved. New purchased credits must be added.
+      const currentRemaining = existingDbProfile?.credits_remaining !== undefined 
+        ? Number(existingDbProfile.credits_remaining) 
+        : (existingDbProfile?.credits !== undefined 
+          ? Number(existingDbProfile.credits) 
+          : (existingDbProfile?.free_analyses_remaining !== undefined 
+            ? Number(existingDbProfile.free_analyses_remaining) 
+            : (currentProfile?.credits_remaining !== undefined 
+              ? Number(currentProfile.credits_remaining) 
+              : (currentProfile?.free_analyses_remaining !== undefined ? Number(currentProfile.free_analyses_remaining) : 0))));
+
+      const currentTotal = existingDbProfile?.total_credits !== undefined 
+        ? Number(existingDbProfile.total_credits) 
+        : (currentProfile?.total_credits !== undefined ? Number(currentProfile.total_credits) : 0);
+
+      const newCreditsRemaining = currentRemaining + purchasedCredits;
+      const newTotalCredits = currentTotal > 0 ? (currentTotal + purchasedCredits) : newCreditsRemaining;
+
+      // 1. Ensure payment row is recorded in payments table (FIX #2: Every purchase creates a NEW row)
+      try {
+        const ordId = (isCard ? "CC-ORD-" : "ORD-") + Date.now() + "-" + Math.floor(Math.random() * 1000);
+        const txId = "TXN-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
         await sSupabase.from("payments").insert({
           id: ordId,
           order_id: ordId,
           user_id: userId,
-          plan_name: isElite ? "ELITE TRADER" : "PRO TRADER",
+          plan_name: formattedPlanName,
           amount: price,
           currency: "USD",
+          status: "Completed",
           transaction_id: txId,
           created_at: new Date()
         });
-        console.log("Logged successful card payment into Supabase payments table:", ordId);
-      } catch (ccPaymentErr) {
-        console.warn("Could not log card payment into payments table:", ccPaymentErr);
+        console.log("Logged successful completed payment into Supabase payments table:", ordId);
+      } catch (paymentErr) {
+        console.warn("Could not log payment into payments table:", paymentErr);
       }
-    }
 
-    let rpcSuccess = false;
-
-    // Try 1: activate_pro_subscription or activate_elite_subscription RPC
-    const specificRpc = isElite ? "activate_elite_subscription" : "activate_pro_subscription";
-    try {
-      console.log(`Attempting RPC ${specificRpc}...`);
-      const { error } = await sSupabase.rpc(specificRpc, {
-        p_user_id: userId
-      });
-      if (!error) {
-        console.log(`RPC ${specificRpc} succeeded!`);
-        rpcSuccess = true;
-      } else {
-        console.warn(`RPC ${specificRpc} failed:`, error);
-      }
-    } catch (err) {
-      console.warn(`Error calling RPC ${specificRpc}:`, err);
-    }
-
-    // Try 2: activate_subscription RPC fallback
-    if (!rpcSuccess) {
+      // 2. Ensure subscription row is recorded in subscriptions table
       try {
-        console.log("Attempting fallback RPC activate_subscription...");
-        const { error } = await sSupabase.rpc("activate_subscription", {
-          p_user_id: userId,
-          p_plan_name: planName,
-          p_credits: credits
-        });
-        if (!error) {
-          console.log("RPC activate_subscription succeeded!");
-          rpcSuccess = true;
-        } else {
-          console.warn("RPC activate_subscription failed:", error);
-        }
-      } catch (err) {
-        console.warn("Error calling RPC activate_subscription:", err);
-      }
-    }
-
-    // Try 3: activate_plan RPC fallback
-    if (!rpcSuccess) {
-      try {
-        console.log("Attempting fallback RPC activate_plan...");
-        const { error } = await sSupabase.rpc("activate_plan", {
-          p_user_id: userId,
-          p_plan_name: planName,
-          p_credits: credits
-        });
-        if (!error) {
-          console.log("RPC activate_plan succeeded!");
-          rpcSuccess = true;
-        } else {
-          console.warn("RPC activate_plan failed:", error);
-        }
-      } catch (err) {
-        console.warn("Error calling RPC activate_plan:", err);
-      }
-    }
-
-    // Try 4: specific RPC like activate_pro or activate_elite fallback
-    if (!rpcSuccess) {
-      const rpcName = isElite ? "activate_elite" : "activate_pro";
-      try {
-        console.log(`Attempting fallback RPC ${rpcName}...`);
-        const { error } = await sSupabase.rpc(rpcName, {
-          p_user_id: userId
-        });
-        if (!error) {
-          console.log(`RPC ${rpcName} succeeded!`);
-          rpcSuccess = true;
-        } else {
-          console.warn(`RPC ${rpcName} failed:`, error);
-        }
-      } catch (err) {
-        console.warn(`Error calling RPC ${rpcName}:`, err);
-      }
-    }
-
-    // Try 5: activate_subscription with non-prefixed params fallback
-    if (!rpcSuccess) {
-      try {
-        console.log("Attempting fallback RPC activate_subscription with non-prefixed params...");
-        const { error } = await sSupabase.rpc("activate_subscription", {
+        await sSupabase.from("subscriptions").insert({
+          id: "sub-" + Date.now(),
           user_id: userId,
-          plan_name: planName,
-          credits: credits
+          plan_name: formattedPlanName,
+          status: "active",
+          created_at: new Date()
         });
-        if (!error) {
-          console.log("RPC activate_subscription (non-prefixed) succeeded!");
-          rpcSuccess = true;
-        } else {
-          console.warn("RPC activate_subscription (non-prefixed) failed:", error);
-        }
-      } catch (err) {
-        console.warn("Error calling RPC activate_subscription (non-prefixed):", err);
+        console.log("Logged active subscription into Supabase subscriptions table");
+      } catch (subErr) {
+        console.warn("Could not insert into subscriptions table:", subErr);
       }
-    }
 
-    // Manual fallback updates if RPCs are missing/fail
-    if (!rpcSuccess) {
+      // 3. Atomically update user profiles table with paid plan & accumulated credits
       try {
-        console.log("No RPC succeeded. Falling back to manual table inserts and updates...");
-
-        // A. Update user profiles table with only columns that exist
         const { error: profileUpdateError } = await sSupabase
           .from("profiles")
           .update({
-            plan: planName.toUpperCase(),
-            credits_remaining: credits,
-            total_credits: credits,
+            plan: planCode,
+            plan_name: formattedPlanName,
+            current_plan: planCode,
+            credits_remaining: newCreditsRemaining,
+            total_credits: newTotalCredits,
+            free_analyses_remaining: newCreditsRemaining,
+            credits: newCreditsRemaining,
             subscription_status: "active",
+            subscription_start_date: new Date().toISOString(),
+            subscription_end_date: nextResetDate,
+            expiry_date: nextResetDate,
             updated_at: new Date()
           })
           .eq("id", userId);
 
         if (profileUpdateError) {
           console.error("Backend error updating profile to paid tier in Supabase:", profileUpdateError);
+        } else {
+          console.log(`Successfully updated profiles table with accumulated credits (${currentRemaining} + ${purchasedCredits} = ${newCreditsRemaining}):`, planCode);
         }
-
-        // B. Log into subscriptions table with only columns that exist
-        await sSupabase
-          .from("subscriptions")
-          .insert({
-            id: "sub-" + Date.now(),
-            user_id: userId,
-            plan_name: planName.toUpperCase() + " TRADER",
-            created_at: new Date()
-          });
-
-        // C. Log into credit_transactions table with only columns that exist
-        await sSupabase
-          .from("credit_transactions")
-          .insert({
-            id: "tx-" + Date.now(),
-            user_id: userId,
-            transaction_type: "grant",
-            created_at: new Date()
-          });
-
-      } catch (manualErr) {
-        console.error("Manual subscription fallback database update error:", manualErr);
+      } catch (profErr) {
+        console.error("Error writing profile update to Supabase:", profErr);
       }
-    }
 
-    // Always update/write the new specific columns requested to guarantee single source of truth in profiles table:
-    try {
-      await sSupabase
-        .from("profiles")
-        .update({
-          plan: isElite ? "ELITE" : "PRO",
-          credits_remaining: credits,
-          total_credits: credits,
-          subscription_status: "active",
-          updated_at: new Date()
-        })
-        .eq("id", userId);
+      // 4. Try legacy RPCs for additional database triggers if defined
+      const specificRpc = isElite ? "activate_elite_subscription" : "activate_pro_subscription";
+      try {
+        await sSupabase.rpc(specificRpc, { p_user_id: userId });
+      } catch (err) {}
 
-    } catch (profCustomErr) {
-      console.warn("Could not write custom columns on profiles table:", profCustomErr);
-    }
+      // 5. Query latest authoritative profile directly from database to return to client
+      try {
+        const { data: finalDbProfile } = await sSupabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
 
-    // Query and sync updated profile back to frontend
-    try {
-      const { data: finalDbProfile } = await sSupabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .single();
+        // 6. Query payment history from payments table
+        const { data: dbPayments } = await sSupabase
+          .from("payments")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
 
-      if (finalDbProfile) {
-        let parsedHistory = [];
-        if (finalDbProfile.payment_history) {
-          try {
-            parsedHistory = typeof finalDbProfile.payment_history === "string"
-              ? JSON.parse(finalDbProfile.payment_history)
-              : finalDbProfile.payment_history;
-          } catch (e) {}
+        let mappedDbPayments: any[] = [];
+        if (dbPayments && dbPayments.length > 0) {
+          mappedDbPayments = dbPayments.map((row: any) => ({
+            id: row.id || row.order_id,
+            date: row.created_at ? new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "N/A",
+            plan: row.plan_name || formattedPlanName,
+            amount: row.amount || price,
+            status: row.status ? row.status.toUpperCase() : "COMPLETED",
+            transaction_id: row.transaction_id || row.id || ""
+          }));
         }
 
-        let parsedAnalysisHistory = [];
-        if (finalDbProfile.analysis_history) {
-          try {
-            parsedAnalysisHistory = typeof finalDbProfile.analysis_history === "string"
-              ? JSON.parse(finalDbProfile.analysis_history)
-              : finalDbProfile.analysis_history;
-          } catch (e) {}
-        }
+        if (finalDbProfile) {
+          let parsedHistory: any[] = [];
+          if (finalDbProfile.payment_history) {
+            try {
+              parsedHistory = typeof finalDbProfile.payment_history === "string"
+                ? JSON.parse(finalDbProfile.payment_history)
+                : finalDbProfile.payment_history;
+            } catch (e) {}
+          }
+          if (!Array.isArray(parsedHistory)) parsedHistory = [];
 
-        updatedProfile = {
-          ...currentProfile,
-          id: finalDbProfile.id,
-          name: finalDbProfile.name || finalDbProfile.name_display || currentProfile.name,
-          email: finalDbProfile.email || currentProfile.email,
-          subscriptionPlan: finalDbProfile.plan === "PRO" ? "Pro" : (finalDbProfile.plan === "ELITE" ? "Elite" : "Free"),
-          accountBalance: finalDbProfile.accountBalance || 100000,
-          joinDate: finalDbProfile.joinDate || currentProfile.joinDate,
-          creditsUsed: finalDbProfile.creditsUsed !== undefined ? finalDbProfile.creditsUsed : 0,
-          creditsLimit: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.creditsLimit !== undefined ? finalDbProfile.creditsLimit : 3),
-          nextResetDate: finalDbProfile.expiry_date || finalDbProfile.nextResetDate || nextResetDate,
-          paymentFailed: !!finalDbProfile.paymentFailed,
-          plan_name: finalDbProfile.plan || (planName.toUpperCase() + " TRADER"),
-          subscription_status: (finalDbProfile.plan === "PRO" || finalDbProfile.plan === "ELITE") ? "active" : "inactive",
-          free_analyses_remaining: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.free_analyses_remaining !== undefined ? finalDbProfile.free_analyses_remaining : credits),
-          credits_remaining: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : credits),
-          total_credits: finalDbProfile.credits !== undefined ? finalDbProfile.credits : (finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : credits),
-          plan: finalDbProfile.plan,
-          credits: finalDbProfile.credits,
-          price: finalDbProfile.price,
-          activation_date: finalDbProfile.activation_date,
-          expiry_date: finalDbProfile.expiry_date,
-          payment_history: parsedHistory,
-          // Newly added fields for production persistence
-          current_plan: finalDbProfile.current_plan || finalDbProfile.plan,
-          subscription_start_date: finalDbProfile.subscription_start_date || finalDbProfile.activation_date || finalDbProfile.joinDate || "",
-          subscription_end_date: finalDbProfile.subscription_end_date || finalDbProfile.expiry_date || "Never",
-          total_successful_analyses: finalDbProfile.total_successful_analyses !== undefined ? finalDbProfile.total_successful_analyses : 0,
-          analysis_history: parsedAnalysisHistory
-        };
+          if (mappedDbPayments.length > 0) {
+            const existingIds = new Set(parsedHistory.map((p: any) => p.id || p.transaction_id));
+            for (const p of mappedDbPayments) {
+              if (!existingIds.has(p.id)) {
+                parsedHistory.push(p);
+              }
+            }
+          }
+
+          let parsedAnalysisHistory = [];
+          if (finalDbProfile.analysis_history) {
+            try {
+              parsedAnalysisHistory = typeof finalDbProfile.analysis_history === "string"
+                ? JSON.parse(finalDbProfile.analysis_history)
+                : finalDbProfile.analysis_history;
+            } catch (e) {}
+          }
+
+          const activePlanCode = finalDbProfile.plan || planCode;
+          const activePlanName = activePlanCode === "ELITE" ? "ELITE TRADER" : (activePlanCode === "PRO" ? "PRO TRADER" : formattedPlanName);
+          const finalPaymentHistory = parsedHistory.length > 0 ? parsedHistory : mappedDbPayments;
+
+          // Sync payment history JSON back into profiles table
+          try {
+            await sSupabase
+              .from("profiles")
+              .update({ payment_history: JSON.stringify(finalPaymentHistory) })
+              .eq("id", userId);
+          } catch (phErr) {
+            console.warn("Could not sync payment_history on profiles:", phErr);
+          }
+
+          // Record grant in credit_transactions
+          try {
+            await sSupabase
+              .from("credit_transactions")
+              .insert({
+                id: "tx-grant-" + Date.now(),
+                user_id: userId,
+                transaction_type: "grant",
+                amount: purchasedCredits,
+                created_at: new Date()
+              });
+          } catch (ctErr) {
+            console.warn("Could not log credit grant into credit_transactions:", ctErr);
+          }
+
+          updatedProfile = {
+            ...currentProfile,
+            id: finalDbProfile.id,
+            name: finalDbProfile.name || finalDbProfile.name_display || currentProfile?.name || "Trader",
+            email: finalDbProfile.email || currentProfile?.email || "",
+            subscriptionPlan: activePlanCode === "ELITE" ? "Elite" : "Pro",
+            accountBalance: finalDbProfile.accountBalance || 100000,
+            joinDate: finalDbProfile.joinDate || currentProfile?.joinDate || "",
+            creditsUsed: finalDbProfile.creditsUsed !== undefined ? finalDbProfile.creditsUsed : 0,
+            creditsLimit: finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : newTotalCredits,
+            nextResetDate: finalDbProfile.expiry_date || nextResetDate,
+            paymentFailed: false,
+            plan_name: activePlanName,
+            subscription_status: "active",
+            free_analyses_remaining: finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : newCreditsRemaining,
+            credits_remaining: finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : newCreditsRemaining,
+            total_credits: finalDbProfile.total_credits !== undefined ? finalDbProfile.total_credits : newTotalCredits,
+            plan: activePlanCode,
+            credits: finalDbProfile.credits_remaining !== undefined ? finalDbProfile.credits_remaining : newCreditsRemaining,
+            price: price,
+            activation_date: finalDbProfile.activation_date || new Date().toISOString(),
+            expiry_date: finalDbProfile.expiry_date || nextResetDate,
+            payment_history: finalPaymentHistory,
+            current_plan: activePlanCode,
+            subscription_start_date: finalDbProfile.subscription_start_date || new Date().toISOString(),
+            subscription_end_date: finalDbProfile.subscription_end_date || nextResetDate,
+            total_successful_analyses: finalDbProfile.total_successful_analyses !== undefined ? finalDbProfile.total_successful_analyses : 0,
+            analysis_history: parsedAnalysisHistory
+          };
+        }
+      } catch (profileFetchErr) {
+        console.error("Error fetching updated profile after paid subscription activation:", profileFetchErr);
       }
-    } catch (profileFetchErr) {
-      console.error("Error fetching updated profile after paid subscription activation:", profileFetchErr);
     }
   } else {
-    // If Supabase not connected (demo mode/guest mode fallback)
+    // Guest / fallback mode
+    const currentRemaining = currentProfile?.credits_remaining !== undefined 
+      ? Number(currentProfile.credits_remaining) 
+      : (currentProfile?.free_analyses_remaining !== undefined ? Number(currentProfile.free_analyses_remaining) : 0);
+    const currentTotal = currentProfile?.total_credits !== undefined ? Number(currentProfile.total_credits) : 0;
+    const newCreditsRemaining = currentRemaining + purchasedCredits;
+    const newTotalCredits = currentTotal > 0 ? (currentTotal + purchasedCredits) : newCreditsRemaining;
+
     updatedProfile = {
       ...currentProfile,
       subscriptionPlan: planName,
-      plan_name: planName.toUpperCase() + " TRADER",
-      Credits: credits,
-      credits_remaining: credits,
-      total_credits: credits,
-      free_analyses_remaining: credits,
+      plan_name: formattedPlanName,
+      current_plan: planCode,
+      plan: planCode,
+      Credits: newCreditsRemaining,
+      credits_remaining: newCreditsRemaining,
+      total_credits: newTotalCredits,
+      free_analyses_remaining: newCreditsRemaining,
+      credits: newCreditsRemaining,
       subscription_status: "active",
+      Subscription: "active",
       nextResetDate,
       paymentFailed: false,
     };
@@ -1714,31 +1856,36 @@ app.post("/api/coach-chat", async (req, res) => {
   const latestMessage = messages[messages.length - 1]?.content || "";
 
   if (ai) {
-    try {
-      const gHistory = messages.slice(0, -1).map((m: any) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+    const modelsToTry = ["gemini-3.6-flash", "gemini-flash-latest"];
+    for (const modelName of modelsToTry) {
+      try {
+        const gHistory = messages.slice(0, -1).map((m: any) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        }));
 
-      const sysInstruction = `You are an elite, highly empathetic but disciplined TradeModeAI Trader Coach & Performance Psychologist. Your mission is to assist evaluation traders to manage their emotions, maintain strict risk limits, analyze psychological hurdles (fear of loss, greed, FOMO, over-trading), and build institutional discipline.
+        const sysInstruction = `You are an elite, highly empathetic but disciplined TradeModeAI Trader Coach & Performance Psychologist. Your mission is to assist evaluation traders to manage their emotions, maintain strict risk limits, analyze psychological hurdles (fear of loss, greed, FOMO, over-trading), and build institutional discipline.
 Context of Current Trader Status: ${JSON.stringify(context || {})}
 Be concise, practical, highly supportive, and institutional. Avoid AI platitudes. Speak in clean, direct trading terminology. Mention drawdown rules, lot sizes, or risk rewards where relevant.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: [
-          ...gHistory,
-          { role: "user", parts: [{ text: latestMessage }] }
-        ],
-        config: {
-          systemInstruction: sysInstruction,
-        },
-      });
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            ...gHistory,
+            { role: "user", parts: [{ text: latestMessage }] }
+          ],
+          config: {
+            systemInstruction: sysInstruction,
+          },
+        });
 
-      return res.json({ text: response.text });
-    } catch (chatError) {
-      console.error("Gemini Coach Chat Error:", chatError);
-      // fallback handled below
+        if (response && response.text) {
+          return res.json({ text: response.text });
+        }
+      } catch (chatError) {
+        console.warn(`Gemini Coach Chat Warning with model ${modelName}:`, chatError);
+        // continue to next model in loop
+      }
     }
   }
 

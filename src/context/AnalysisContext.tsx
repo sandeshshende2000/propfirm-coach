@@ -55,7 +55,7 @@ interface AnalysisProviderProps {
 }
 
 export function AnalysisProvider({ children, analyses, onAddAnalysis }: AnalysisProviderProps) {
-  const { profile, updateProfileState } = useSubscription();
+  const { profile, updateProfileState, refreshProfile } = useSubscription();
   const [currentJob, setCurrentJob] = useState<AnalysisJob | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>("QUEUED");
   const [notificationDismissed, setNotificationDismissed] = useState(true);
@@ -140,6 +140,12 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (errData.updatedProfile) {
+          updateProfileState(errData.updatedProfile);
+        } else if (originalProfileRef.current) {
+          updateProfileState(originalProfileRef.current);
+        }
+        await refreshProfile();
         throw new Error(errData.error || "Server was unable to complete the analysis blueprint.");
       }
 
@@ -159,6 +165,7 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
       if (updatedProfile) {
         updateProfileState(updatedProfile);
       }
+      await refreshProfile();
 
       // 5. Save completed analysis to database history
       onAddAnalysis({
@@ -175,6 +182,10 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
     } catch (err: any) {
       if (err.name === "AbortError" || status === "CANCELLED") {
         console.log("Analysis request aborted/cancelled.");
+        if (originalProfileRef.current) {
+          updateProfileState(originalProfileRef.current);
+        }
+        await refreshProfile();
         return;
       }
 
@@ -184,6 +195,7 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
       if (originalProfileRef.current) {
         updateProfileState(originalProfileRef.current);
       }
+      await refreshProfile();
 
       const failedJob: AnalysisJob = {
         ...newJob,
@@ -197,7 +209,7 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
     }
   };
 
-  const cancelAnalysis = () => {
+  const cancelAnalysis = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -206,6 +218,7 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
     if (originalProfileRef.current) {
       updateProfileState(originalProfileRef.current);
     }
+    await refreshProfile();
 
     if (currentJob) {
       setCurrentJob({
