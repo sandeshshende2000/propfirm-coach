@@ -74,16 +74,22 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
     userId?: string;
   }) => {
     // 1. Immediately validate credits
-    const limit = profile.total_credits !== undefined ? profile.total_credits : profile.creditsLimit;
-    const remainingCredits = profile.credits_remaining !== undefined 
+    const limit = typeof profile.total_credits === "number" ? profile.total_credits : (typeof profile.creditsLimit === "number" ? profile.creditsLimit : 3);
+    const remainingCredits = typeof profile.credits_remaining === "number" 
       ? profile.credits_remaining 
-      : Math.max(0, limit - profile.creditsUsed);
+      : (typeof profile.free_analyses_remaining === "number"
+          ? profile.free_analyses_remaining
+          : (typeof profile.credits === "number"
+              ? profile.credits
+              : (typeof profile.Credits === "number"
+                  ? profile.Credits
+                  : Math.max(0, limit - (typeof profile.creditsUsed === "number" ? profile.creditsUsed : 0)))));
 
     if (profile.paymentFailed) {
       throw new Error("Subscription payment required. Renew your plan to continue using AI analysis.");
     }
     if (remainingCredits <= 0) {
-      throw new Error("Analysis blocked. You have used all available credits. Please upgrade your plan.");
+      throw new Error("NO_CREDITS: You have 0 credits remaining. Please upgrade to Pro or Elite plan to continue.");
     }
 
     // Capture original profile to restore in case of failure or cancellation
@@ -91,13 +97,15 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
 
     // 2. Reserve 1 credit immediately visually
     const reservedRemaining = Math.max(0, remainingCredits - 1);
-    const reservedUsed = profile.creditsUsed + 1;
+    const reservedUsed = (typeof profile.creditsUsed === "number" ? profile.creditsUsed : 0) + 1;
     const reservedProfile: UserProfile = {
       ...profile,
       credits_remaining: reservedRemaining,
       free_analyses_remaining: reservedRemaining,
       credits: reservedRemaining,
+      Credits: reservedRemaining,
       creditsUsed: reservedUsed,
+      credits_used: reservedUsed,
     };
     updateProfileState(reservedProfile);
 
@@ -145,8 +153,8 @@ export function AnalysisProvider({ children, analyses, onAddAnalysis }: Analysis
         } else if (originalProfileRef.current) {
           updateProfileState(originalProfileRef.current);
         }
-        await refreshProfile();
-        throw new Error(errData.error || "Server was unable to complete the analysis blueprint.");
+        const errMsg = errData.message || errData.error || "Server was unable to complete the analysis blueprint.";
+        throw new Error(errData.code === "NO_CREDITS" ? `NO_CREDITS: ${errMsg}` : errMsg);
       }
 
       const { result: analysisResult, updatedProfile } = await response.json();

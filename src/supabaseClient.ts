@@ -11,6 +11,37 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
+// Helper to detect network unreachable, DNS failure, offline state, or fetch failures
+export const isNetworkOrFetchError = (err: any): boolean => {
+  if (!err) return false;
+  const msg = (typeof err === "string" ? err : (err.message || err.error_description || "")).toLowerCase();
+  const name = (err.name || "").toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("fetch failed") ||
+    msg.includes("networkerror") ||
+    msg.includes("network error") ||
+    msg.includes("enotfound") ||
+    msg.includes("econnrefused") ||
+    msg.includes("load failed") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("aborted") ||
+    name.includes("typeerror") ||
+    name.includes("aborterror")
+  );
+};
+
+// Promise timeout wrapper to prevent long hanging connection attempts to unreachable hosts
+export const withTimeout = <T>(promise: PromiseLike<T>, ms: number = 3500): Promise<T> => {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Network timeout: Failed to fetch authentication server")), ms)
+    )
+  ]);
+};
+
 // Database State Structure
 interface DatabaseSchema {
   profile: UserProfile;
@@ -335,7 +366,7 @@ class RealTimeDatabase {
 
           const payloadKeys = Object.keys(dbProfile).filter(k => k !== "updated_at");
           if (payloadKeys.length > 0) {
-            supabase?.from("profiles").update(dbProfile).eq("id", profile.id).then();
+            supabase?.from("profiles").update(dbProfile).eq("id", profile.id).then(() => {}, () => {});
           }
         } else {
           // Brand-new profile creation: write only fields that exist in the database table
@@ -350,9 +381,9 @@ class RealTimeDatabase {
             updated_at: new Date()
           };
           
-          supabase?.from("profiles").insert(dbProfile).then();
+          supabase?.from("profiles").insert(dbProfile).then(() => {}, () => {});
         }
-      });
+      }, () => {});
     }
     this.notify();
   }

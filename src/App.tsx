@@ -28,7 +28,7 @@ import {
 // Types & Data
 import { TradeJournalEntry, UserProfile, ChatMessage, AIAnalysisRecord } from "./types";
 import { SAMPLE_USER_PROFILE, SAMPLE_TRADE_JOURNAL } from "./data";
-import { db, supabase, isSupabaseConfigured } from "./supabaseClient";
+import { db, supabase, isSupabaseConfigured, isNetworkOrFetchError, withTimeout } from "./supabaseClient";
 
 // Sub-screens components
 import LandingPage from "./components/LandingPage";
@@ -184,16 +184,15 @@ export default function App() {
     setIsAuthenticated(true);
     localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
 
-    if (isDemoMode) {
-      const currentProfile = db.getProfile(true);
-      const updated = {
-        ...currentProfile,
-        name: name || currentProfile.name,
-        email: email || currentProfile.email,
-      };
-      setProfile(updated);
-      db.saveProfile(updated, true);
-    }
+    const currentProfile = db.getProfile(isDemoMode);
+    const updated: UserProfile = {
+      ...currentProfile,
+      name: name || currentProfile.name,
+      email: email || currentProfile.email,
+    };
+    setProfile(updated);
+    db.saveProfile(updated, isDemoMode, false);
+    localStorage.setItem(isDemoMode ? "TRADEMODEAI_DEMO_PROFILE" : "TRADEMODEAI_REAL_PROFILE", JSON.stringify(updated));
 
     navigate("/dashboard");
   };
@@ -202,26 +201,38 @@ export default function App() {
     setIsAuthenticated(true);
     localStorage.setItem("TRADEMODEAI_IS_AUTHENTICATED", "true");
 
-    if (isDemoMode) {
-      const updatedProfile: UserProfile = {
-        name: name,
-        email: email,
-        subscriptionPlan: "Free",
-        accountBalance: 100000,
-        joinDate: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        creditsUsed: 0,
-        creditsLimit: 3,
-        nextResetDate: "N/A (3 Free Runs)",
-        paymentFailed: false,
-        free_analyses_remaining: 3,
-        subscription_status: "inactive",
-        credits_remaining: 3,
-        plan_name: "FREE TRIAL",
-        total_credits: 3,
-      };
-      setProfile(updatedProfile);
-      db.saveProfile(updatedProfile, true);
-    }
+    const todayDate = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const updatedProfile: UserProfile = {
+      id: "usr-" + Date.now(),
+      name: name || "New Trader",
+      email: email,
+      subscriptionPlan: "Free",
+      accountBalance: 100000,
+      joinDate: todayDate,
+      creditsUsed: 0,
+      creditsLimit: 3,
+      nextResetDate: "Never",
+      paymentFailed: false,
+      free_analyses_remaining: 3,
+      subscription_status: "active",
+      credits_remaining: 3,
+      plan_name: "FREE TRIAL",
+      total_credits: 3,
+      plan: "FREE_TRIAL",
+      credits: 3,
+      price: 0,
+      activation_date: todayDate,
+      expiry_date: "Never",
+      payment_history: [],
+      analysis_history: [],
+      current_plan: "FREE_TRIAL",
+      subscription_start_date: todayDate,
+      subscription_end_date: "Never",
+      total_successful_analyses: 0,
+    };
+    setProfile(updatedProfile);
+    db.saveProfile(updatedProfile, isDemoMode, false);
+    localStorage.setItem(isDemoMode ? "TRADEMODEAI_DEMO_PROFILE" : "TRADEMODEAI_REAL_PROFILE", JSON.stringify(updatedProfile));
 
     navigate("/dashboard");
   };
@@ -290,7 +301,18 @@ export default function App() {
           navigate("/dashboard");
         }
       } else {
+        const isBypass = localStorage.getItem("TRADEMODEAI_BYPASS_SUPABASE") === "true";
         const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
+        if (isBypass && wasAuthenticated) {
+          setIsAuthenticated(true);
+          setIsDataLoading(false);
+          const publicAuthPaths = ["/", "/login", "/signup"];
+          if (publicAuthPaths.includes(window.location.pathname)) {
+            navigate("/dashboard");
+          }
+          return;
+        }
+
         setIsAuthenticated(false);
         localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
         setIsDataLoading(false);
@@ -335,7 +357,14 @@ export default function App() {
           navigate("/dashboard");
         }
       } else {
+        const isBypass = localStorage.getItem("TRADEMODEAI_BYPASS_SUPABASE") === "true";
         const wasAuthenticated = localStorage.getItem("TRADEMODEAI_IS_AUTHENTICATED") === "true";
+        if (isBypass && wasAuthenticated && event !== "SIGNED_OUT") {
+          setIsAuthenticated(true);
+          setIsDataLoading(false);
+          return;
+        }
+
         setIsAuthenticated(false);
         localStorage.removeItem("TRADEMODEAI_IS_AUTHENTICATED");
         setIsDataLoading(false);
@@ -360,8 +389,16 @@ export default function App() {
     const loadSupabaseData = async () => {
       setIsDataLoading(true);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        let user = null;
+        try {
+          const userRes = await withTimeout(supabase.auth.getUser(), 3500);
+          user = userRes.data?.user;
+        } catch (uErr) {
+          console.warn("Could not retrieve Supabase auth user:", uErr);
+        }
         if (!user) {
+          const cached = db.getProfile(isDemoMode);
+          if (cached) setProfile(cached);
           setIsDataLoading(false);
           return;
         }
@@ -369,14 +406,17 @@ export default function App() {
         // Fetch user profile (with automatic retries for network/timeout/temporary database failures)
         let profileData = null;
         let profileError = null;
-        let retries = 3;
+        let retries = 2;
         while (retries > 0) {
           try {
-            const { data, error } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", user.id)
-              .maybeSingle();
+            const { data, error } = await withTimeout(
+              supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", user.id)
+                .maybeSingle(),
+              3500
+            );
             
             if (!error) {
               profileData = data;
@@ -387,15 +427,21 @@ export default function App() {
           } catch (err: any) {
             profileError = err;
           }
-          console.warn(`Temporary issue fetching profile from Supabase. Retrying... left: ${retries - 1}`, profileError);
           retries--;
           if (retries > 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1500));
+            await new Promise((resolve) => setTimeout(resolve, 800));
           }
         }
 
         if (profileError) {
-          console.error("Critical or temporary database failure after retries:", profileError);
+          console.warn("Supabase database unreachable or issue fetching profile:", profileError);
+          const isNetErr = isNetworkOrFetchError(profileError);
+          if (isNetErr) {
+            const cached = db.getProfile(isDemoMode);
+            if (cached) setProfile(cached);
+            setIsDataLoading(false);
+            return;
+          }
           setSupabaseLoadError(profileError);
           setIsDataLoading(false);
           return; // STOP immediately. Never fall back to defaults or overwrite data.

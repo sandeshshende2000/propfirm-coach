@@ -131,8 +131,9 @@ export function SubscriptionProvider({
       Object.assign(changedDeltas, updated);
     }
 
-    // 2. If running in Demo Mode or Supabase is not configured/authenticated, update locally and return
-    if (isDemoMode || !isSupabaseConfigured || !supabase || !updated.id) {
+    const isUserUuid = typeof updated.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(updated.id);
+    // 2. If running in Demo Mode or Supabase is not configured/authenticated or non-UUID, update locally and return
+    if (isDemoMode || !isSupabaseConfigured || !supabase || !updated.id || !isUserUuid) {
       setProfile(updated);
       if (onProfileChange) {
         onProfileChange(updated);

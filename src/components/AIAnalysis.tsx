@@ -160,19 +160,42 @@ export default function AIAnalysis({
 
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
   const [result, setResult] = useState<AIAnalysisResult | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [activePlanSelection, setActivePlanSelection] = useState<"Pro" | "Elite">("Pro");
+
+  const totalCredits = typeof profile.total_credits === "number" 
+    ? profile.total_credits 
+    : (typeof profile.creditsLimit === "number" ? profile.creditsLimit : 3);
+
+  const remainingCredits = typeof profile.credits_remaining === "number" 
+    ? profile.credits_remaining 
+    : (typeof profile.free_analyses_remaining === "number"
+        ? profile.free_analyses_remaining
+        : (typeof profile.credits === "number"
+            ? profile.credits
+            : (typeof profile.Credits === "number"
+                ? profile.Credits
+                : Math.max(0, totalCredits - (typeof profile.creditsUsed === "number" ? profile.creditsUsed : 0)))));
 
   // Sync with global completed/failed states
   useEffect(() => {
     if (status === "COMPLETED" && currentJob?.result) {
       setResult(currentJob.result);
       setWarningMessage(null);
+      // If user finished their analysis and credits reached 0, suggest Pro or Elite plans
+      if (remainingCredits === 0) {
+        setShowUpgradeModal(true);
+      }
     } else if (status === "FAILED" && currentJob?.error) {
       setWarningMessage(currentJob.error);
+      if (currentJob.error.includes("NO_CREDITS") || currentJob.error.includes("credits") || currentJob.error.includes("exhausted") || remainingCredits <= 0) {
+        setShowUpgradeModal(true);
+      }
     } else if (status === "CANCELLED") {
       setResult(null);
       setWarningMessage("Analysis was explicitly cancelled by user.");
     }
-  }, [status, currentJob]);
+  }, [status, currentJob, remainingCredits]);
 
   // Utility to read files into base64 strings
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string | null) => void) => {
@@ -210,16 +233,14 @@ export default function AIAnalysis({
     clearJob();
   };
 
-  const remainingCredits = profile.credits_remaining !== undefined ? profile.credits_remaining : Math.max(0, profile.creditsLimit - profile.creditsUsed);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [activePlanSelection, setActivePlanSelection] = useState<"Pro" | "Elite">("Pro");
-
   const executeAnalysis = async () => {
     if (profile.paymentFailed) {
       setWarningMessage("Subscription payment required. Renew your plan to continue using AI analysis.");
       return;
     }
+    // Zero credit: Stop analysis and suggest Pro and Elite plan pop-up
     if (remainingCredits <= 0) {
+      setWarningMessage("Zero credits remaining. Analysis stopped. Please upgrade to Pro or Elite plan to continue.");
       setShowUpgradeModal(true);
       return;
     }
@@ -245,7 +266,11 @@ export default function AIAnalysis({
       });
     } catch (e: any) {
       console.warn("Analysis start warning:", e);
-      setWarningMessage(e.message || "An unexpected issue occurred while initiating analysis.");
+      const msg = e.message || "An unexpected issue occurred while initiating analysis.";
+      if (msg.includes("NO_CREDITS") || msg.includes("all available credits") || msg.includes("exhausted") || remainingCredits <= 0) {
+        setShowUpgradeModal(true);
+      }
+      setWarningMessage(msg.replace("NO_CREDITS: ", ""));
     }
   };
 
@@ -255,6 +280,10 @@ export default function AIAnalysis({
       onUpdateProfile({
         ...profile,
         creditsUsed: 0,
+        credits_remaining: totalCredits,
+        free_analyses_remaining: totalCredits,
+        credits: totalCredits,
+        Credits: totalCredits,
         paymentFailed: false
       });
     }
@@ -284,21 +313,34 @@ export default function AIAnalysis({
         <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 min-w-[240px] space-y-1.5 self-start md:self-auto shadow-md">
           <div className="flex justify-between items-center text-[10px] font-mono">
             <span className="text-slate-400 uppercase tracking-wider font-bold">Credits Remaining</span>
-            <span className="text-emerald-400 font-extrabold text-xs">
-              {remainingCredits} / {profile.creditsLimit} Remaining
+            <span className={`font-extrabold text-xs ${remainingCredits <= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {remainingCredits} / {totalCredits} Remaining
             </span>
           </div>
           <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
             <div 
               className={`h-full transition-all duration-500 rounded-full ${
-                remainingCredits <= 10 ? 'bg-rose-500' : remainingCredits <= 50 ? 'bg-amber-550' : 'bg-emerald-500'
+                remainingCredits <= 0 ? 'bg-rose-500 w-0' : remainingCredits <= 1 ? 'bg-amber-500' : 'bg-emerald-500'
               }`}
-              style={{ width: `${(remainingCredits / profile.creditsLimit) * 100}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, (remainingCredits / totalCredits) * 100))}%` }}
             />
           </div>
-          <p className="text-[9px] text-slate-500 font-mono text-right font-medium">
-            Plan: {profile.subscriptionPlan === 'Free' ? '3 Free Runs' : `${profile.subscriptionPlan} Trader`}
-          </p>
+          <div className="flex justify-between items-center text-[9px] font-mono">
+            {remainingCredits <= 0 ? (
+              <button
+                type="button"
+                onClick={() => setShowUpgradeModal(true)}
+                className="text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer"
+              >
+                Zero Credits — Upgrade
+              </button>
+            ) : (
+              <span className="text-slate-500 font-medium">1 credit per run</span>
+            )}
+            <p className="text-slate-400 font-medium">
+              Plan: {profile.subscriptionPlan === 'Free' ? '3 Free Runs' : `${profile.subscriptionPlan} Trader`}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -629,17 +671,26 @@ export default function AIAnalysis({
             <button
               onClick={executeAnalysis}
               disabled={isAnalyzing}
-              className="flex-1 py-3 px-6 bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black text-xs rounded-xl active:scale-95 transition-all shadow-lg shadow-emerald-500/10 flex items-center justify-center gap-1.5"
+              className={`flex-1 py-3 px-6 font-black text-xs rounded-xl active:scale-95 transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer ${
+                remainingCredits <= 0
+                  ? "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/10"
+                  : "bg-gradient-to-r from-emerald-500 to-teal-400 hover:opacity-95 text-slate-950 shadow-emerald-500/10"
+              }`}
             >
               {isAnalyzing ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
                   CONSULTING NEURAL CHANNELS...
                 </>
+              ) : remainingCredits <= 0 ? (
+                <>
+                  <AlertTriangle className="w-4 h-4 text-slate-950" />
+                  0 CREDITS — UPGRADE TO PRO OR ELITE
+                </>
               ) : (
                 <>
                   <Play className="w-4 h-4 fill-slate-950" />
-                  ANALYZE TRADE SETUP
+                  ANALYZE TRADE SETUP (1 CREDIT)
                 </>
               )}
             </button>
@@ -686,9 +737,20 @@ export default function AIAnalysis({
         {/* Dynamic Analysis Display */}
         <div className="lg:col-span-2 space-y-6">
           {warningMessage && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs rounded-xl flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <span>{warningMessage}</span>
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs rounded-xl flex items-center justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>{warningMessage}</span>
+              </div>
+              {remainingCredits <= 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowUpgradeModal(true)}
+                  className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold rounded-lg shrink-0 cursor-pointer transition-colors"
+                >
+                  View Plans
+                </button>
+              )}
             </div>
           )}
 
